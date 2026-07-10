@@ -287,7 +287,7 @@ function TimelineTab({ caseId }: { caseId: string }) {
       ) : events.length === 0 ? (
         <EmptyState icon={Clock} title="Nenhum evento encontrado" />
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-4">
           {events.map((event: Event) => {
             const Icon = KIND_ICONS[event.kind] || Clock
             const color = KIND_COLORS[event.kind] || 'text-dim'
@@ -296,7 +296,7 @@ function TimelineTab({ caseId }: { caseId: string }) {
                 key={event.id}
                 className="group border-border hover:border-border-hover"
               >
-                <CardContent className="flex items-start gap-4 py-4">
+                <CardContent className="flex items-start gap-5 py-6">
                   <div className={cn('mt-0.5 shrink-0', color)}>
                     <Icon className="h-4 w-4" />
                   </div>
@@ -489,7 +489,7 @@ function ChatTab({ caseId }: { caseId: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="space-y-4 px-6 py-6 lg:px-8">
+        <div className="space-y-5 px-10 py-10 lg:px-14">
           {history.length === 0 && (
             <EmptyState
               icon={MessageSquare}
@@ -552,8 +552,8 @@ function ChatTab({ caseId }: { caseId: string }) {
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-border bg-surface px-6 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pt-4 lg:px-8">
-        <div className="flex gap-3">
+      <div className="shrink-0 border-t border-border bg-surface px-10 pt-6 pb-[max(2.5rem,calc(env(safe-area-inset-bottom,0px)+1.25rem))] lg:px-14">
+        <div className="flex gap-4">
           <input
             type="text"
             value={input}
@@ -565,7 +565,7 @@ function ChatTab({ caseId }: { caseId: string }) {
           />
           <Button
             variant="secondary"
-            className="h-11 shrink-0 px-4"
+            className="h-11 shrink-0 px-5"
             onClick={handleSend}
             disabled={loading || !input.trim()}
           >
@@ -594,7 +594,7 @@ function DataTab({ stats, isLoading }: { stats: CaseStats | undefined; isLoading
         title="Dados do Caso"
         description="Resumo das informações armazenadas"
       />
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-5">
         {isLoading
           ? items.map(({ label }) => <Skeleton key={label} className="h-32 w-full" />)
           : items.map(({ label, value, icon: Icon }) => (

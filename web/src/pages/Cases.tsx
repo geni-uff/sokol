@@ -72,10 +72,16 @@ export default function Cases() {
         description={`${cases?.length ?? 0} caso(s) encontrado(s)`}
         actions={
           <>
-            <Button variant="secondary" size="md" onClick={() => refetch()} title="Atualizar">
+            <Button
+              variant="secondary"
+              size="lg"
+              className="min-w-12 px-4"
+              onClick={() => refetch()}
+              title="Atualizar"
+            >
               <RefreshCw className="h-4 w-4" />
             </Button>
-            <Button onClick={() => setShowCreate(true)}>
+            <Button size="lg" onClick={() => setShowCreate(true)}>
               <Plus className="h-4 w-4" />
               Novo caso
             </Button>
@@ -83,14 +89,14 @@ export default function Cases() {
         }
       />
 
-      <div className="relative mb-8">
-        <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-dim" />
+      <div className="relative mb-12">
+        <Search className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-dim" />
         <input
           type="text"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filtrar por nome ou referência..."
-          className="h-11 w-full rounded-lg border border-border bg-surface-elevated py-2.5 pl-11 pr-4 text-sm text-foreground placeholder:text-dim transition-colors duration-150 hover:border-border-hover focus:border-border-hover focus:outline-none focus:ring-1 focus:ring-white/10"
+          className="h-12 w-full rounded-xl border border-border-hover bg-surface-elevated py-3 pl-12 pr-5 text-sm text-foreground placeholder:text-dim transition-colors duration-150 hover:border-border-hover focus:border-border-hover focus:outline-none focus:ring-1 focus:ring-white/10"
         />
       </div>
 
@@ -113,7 +119,7 @@ export default function Cases() {
           </>
         }
       >
-        <div className="space-y-4">
+        <div className="space-y-5">
           <Input
             label="Nome"
             type="text"
@@ -133,9 +139,9 @@ export default function Cases() {
       </Dialog>
 
       {isLoading && (
-        <div className="space-y-3">
+        <div className="space-y-5">
           {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24 w-full" />
+            <Skeleton key={i} className="h-28 w-full rounded-xl" />
           ))}
         </div>
       )}
@@ -160,31 +166,31 @@ export default function Cases() {
         />
       )}
 
-      <div className="space-y-3">
+      <div className="flex flex-col gap-6">
         {filtered?.map((c) => (
           <Card
             key={c.id}
-            className="cursor-pointer hover:border-border-hover"
+            className="cursor-pointer hover:bg-[#1a1a1a]"
             onClick={() => navigate(`/cases/${c.id}`)}
             role="button"
             tabIndex={0}
             onKeyDown={(e) => e.key === 'Enter' && navigate(`/cases/${c.id}`)}
           >
             <CardContent>
-              <div className="flex items-start justify-between gap-6">
+              <div className="flex items-start justify-between gap-8">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-3">
                     <h3 className="truncate text-base font-medium text-foreground">{c.name}</h3>
                     <Badge variant="success">{c.status}</Badge>
                   </div>
                   {c.legal_ref && (
-                    <div className="mt-3 flex items-center gap-2 text-sm text-muted">
+                    <div className="mt-4 flex items-center gap-2.5 text-sm text-muted">
                       <Scale className="h-4 w-4 shrink-0 text-dim" />
                       <span className="break-words">{c.legal_ref}</span>
                     </div>
                   )}
                 </div>
-                <div className="flex shrink-0 items-center gap-2 text-sm text-dim">
+                <div className="flex shrink-0 items-center gap-2.5 pt-0.5 text-sm text-dim">
                   <Calendar className="h-4 w-4" />
                   <span className="whitespace-nowrap">
                     {new Date(c.created_at).toLocaleDateString('pt-BR')}

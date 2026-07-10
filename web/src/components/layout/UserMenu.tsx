@@ -17,10 +17,10 @@ export function UserMenu() {
   const displayId = userId ? userId.slice(0, 8) : 'operador'
 
   return (
-    <div className="shrink-0 px-3 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pt-3">
-      <Separator className="mb-3" />
-      <div className="mb-3 flex items-center gap-3 px-3 py-1">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-surface-elevated text-xs font-medium text-muted">
+    <div className="shrink-0 px-5 pt-5 pb-[max(2.5rem,calc(env(safe-area-inset-bottom,0px)+1.25rem))]">
+      <Separator className="mb-5" />
+      <div className="mb-4 flex items-center gap-3 px-3.5 py-2">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-elevated text-xs font-medium text-muted">
           {initial}
         </div>
         <div className="min-w-0 flex-1">
@@ -32,7 +32,7 @@ export function UserMenu() {
         type="button"
         onClick={handleLogout}
         className={cn(
-          'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium',
+          'flex w-full items-center gap-3 rounded-lg px-4 py-3.5 text-left text-sm font-medium',
           'text-muted transition-colors duration-150',
           'hover:bg-white/5 hover:text-foreground',
         )}

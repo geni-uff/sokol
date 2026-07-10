@@ -14,7 +14,7 @@ export function PageHeader({ icon: Icon, title, description, actions, className 
   return (
     <div
       className={cn(
-        'mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between',
+        'mb-12 flex flex-col gap-6 md:flex-row md:items-start md:justify-between',
         className,
       )}
     >
@@ -26,7 +26,7 @@ export function PageHeader({ icon: Icon, title, description, actions, className 
         )}
         <div className="min-w-0">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h2>
-          {description && <p className="mt-1 text-sm text-muted">{description}</p>}
+          {description && <p className="mt-1.5 text-sm text-muted">{description}</p>}
         </div>
       </div>
       {actions && (
