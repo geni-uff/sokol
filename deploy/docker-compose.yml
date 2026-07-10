@@ -113,6 +113,70 @@ services:
       - sokol-net
 
   # ---------------------------------------------------------------------------
+  # OCR service — PaddleOCR text extraction
+  # ---------------------------------------------------------------------------
+  sokol-ocr:
+    build:
+      context: ../services/ocr
+      dockerfile: Dockerfile
+    container_name: sokol-ocr
+    restart: unless-stopped
+    ports:
+      - "${SOKOL_OCR_PORT:-8008}:8008"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8008/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - sokol-net
+
+  # ---------------------------------------------------------------------------
+  # ASR service — faster-whisper transcription
+  # ---------------------------------------------------------------------------
+  sokol-asr:
+    build:
+      context: ../services/asr
+      dockerfile: Dockerfile
+    container_name: sokol-asr
+    restart: unless-stopped
+    ports:
+      - "${SOKOL_ASR_PORT:-8009}:8009"
+    volumes:
+      - ../data/media-cache:/data/media-cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8009/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - sokol-net
+
+  # ---------------------------------------------------------------------------
+  # Plate detection — YOLO + OCR for license plates
+  # ---------------------------------------------------------------------------
+  sokol-plate:
+    build:
+      context: ../services/plate
+      dockerfile: Dockerfile
+    container_name: sokol-plate
+    restart: unless-stopped
+    ports:
+      - "${SOKOL_PLATE_PORT:-8010}:8010"
+    volumes:
+      - ../data/media-cache:/data/media-cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - sokol-net
+
+  # ---------------------------------------------------------------------------
   # Frontend — React SPA
   # ---------------------------------------------------------------------------
   sokol-web:
