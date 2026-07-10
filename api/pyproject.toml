@@ -1,0 +1,17 @@
+[project]
+name = "sokol-api"
+version = "0.1.0"
+description = "SOKOL forensic platform - API gateway"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "httpx>=0.28",
+    "argon2-cffi>=23.1",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
