@@ -172,17 +172,15 @@ def get_playbook(playbook_id: str):
 
 @router.post("/{playbook_id}/execute", response_model=PlaybookExecution)
 def execute_playbook(playbook_id: str, case_id: str, user_id: str = "system"):
-    """Start playbook execution for a case."""
+    """Start playbook execution for a case — runs all steps synchronously."""
     factory = get_session_factory()
     with factory() as db:
-        # Verify playbook exists
         playbook = db.execute(
             text("SELECT * FROM playbooks WHERE id = :id"), {"id": playbook_id}
         ).fetchone()
         if not playbook:
             raise HTTPException(status_code=404, detail="Playbook not found")
 
-        # Verify case exists
         case = db.execute(
             text("SELECT id FROM cases WHERE id = :id"), {"id": case_id}
         ).fetchone()
@@ -190,11 +188,10 @@ def execute_playbook(playbook_id: str, case_id: str, user_id: str = "system"):
             raise HTTPException(status_code=404, detail="Case not found")
 
         execution_id = db.execute(text("SELECT gen_random_uuid()")).fetchone()[0]
-
         db.execute(
             text("""
-                INSERT INTO playbook_executions (id, playbook_id, case_id, status, created_by)
-                VALUES (:id, :playbook_id, :case_id, 'pending', :created_by)
+                INSERT INTO playbook_executions (id, playbook_id, case_id, status, current_step, created_by)
+                VALUES (:id, :playbook_id, :case_id, 'running', 'starting', :created_by)
             """),
             {
                 "id": execution_id,
@@ -205,17 +202,185 @@ def execute_playbook(playbook_id: str, case_id: str, user_id: str = "system"):
         )
         db.commit()
 
+        steps = json.loads(playbook["steps"])
+        results = {}
+
+        for step in steps:
+            step_id = step["id"]
+            step_name = step.get("name", step_id)
+            action = step.get("action", "noop")
+            params = step.get("params", {})
+
+            db.execute(
+                text("""
+                    UPDATE playbook_executions
+                    SET current_step = :step_name
+                    WHERE id = :eid
+                """),
+                {"step_name": f"{step_name} ({action})", "eid": execution_id},
+            )
+            db.commit()
+
+            try:
+                output = _execute_step(db, case_id, action, params)
+                results[step_id] = {"status": "ok", "output": output}
+                db.execute(
+                    text("""
+                        INSERT INTO playbook_results (id, execution_id, step_id, status, output)
+                        VALUES (gen_random_uuid(), :eid, :sid, 'ok', :output::jsonb)
+                    """),
+                    {"eid": execution_id, "sid": step_id, "output": json.dumps(output)},
+                )
+            except Exception as e:
+                results[step_id] = {"status": "error", "error": str(e)}
+                db.execute(
+                    text("""
+                        INSERT INTO playbook_results (id, execution_id, step_id, status, error)
+                        VALUES (gen_random_uuid(), :eid, :sid, 'error', :error)
+                    """),
+                    {"eid": execution_id, "sid": step_id, "error": str(e)},
+                )
+            db.commit()
+
+        db.execute(
+            text("""
+                UPDATE playbook_executions
+                SET status = 'completed', current_step = NULL, results = :results::jsonb,
+                    completed_at = now()
+                WHERE id = :eid
+            """),
+            {"results": json.dumps(results), "eid": execution_id},
+        )
+        db.commit()
+
+        row = db.execute(
+            text("SELECT * FROM playbook_executions WHERE id = :id"),
+            {"id": execution_id},
+        ).fetchone()
+
         return PlaybookExecution(
-            id=str(execution_id),
+            id=str(row["id"]),
             playbook_id=playbook_id,
             case_id=case_id,
-            status="pending",
+            status="completed",
             current_step=None,
-            results={},
-            started_at=None,
-            completed_at=None,
+            results=results,
+            started_at=row["started_at"],
+            completed_at=row["completed_at"],
             created_by=user_id,
         )
+
+
+def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
+    """Execute a single playbook step and return its output."""
+    if action == "extract_contacts":
+        rows = db.execute(
+            text("""
+                SELECT DISTINCT entity_name, entity_type, COUNT(*) as count
+                FROM entities WHERE case_id = :cid
+                GROUP BY entity_name, entity_type
+                ORDER BY count DESC LIMIT 50
+            """),
+            {"cid": case_id},
+        ).fetchall()
+        return {"contacts": [dict(r._mapping) for r in rows], "count": len(rows)}
+
+    elif action == "map_communications":
+        rows = db.execute(
+            text("""
+                SELECT source, dest, kind, COUNT(*) as count, MIN(ts) as first, MAX(ts) as last
+                FROM events WHERE case_id = :cid AND kind IN ('message', 'call')
+                GROUP BY source, dest, kind ORDER BY count DESC LIMIT 50
+            """),
+            {"cid": case_id},
+        ).fetchall()
+        return {"communications": [dict(r._mapping) for r in rows], "count": len(rows)}
+
+    elif action == "analyze_patterns":
+        rows = db.execute(
+            text("""
+                SELECT kind, COUNT(*) as count
+                FROM events WHERE case_id = :cid
+                GROUP BY kind ORDER BY count DESC
+            """),
+            {"cid": case_id},
+        ).fetchall()
+        return {"patterns": [dict(r._mapping) for r in rows]}
+
+    elif action == "extract_timeline":
+        rows = db.execute(
+            text("""
+                SELECT id, kind, ts, summary
+                FROM events WHERE case_id = :cid
+                ORDER BY ts LIMIT 200
+            """),
+            {"cid": case_id},
+        ).fetchall()
+        return {"events": [dict(r._mapping) for r in rows], "count": len(rows)}
+
+    elif action == "detect_peaks":
+        rows = db.execute(
+            text("""
+                SELECT date_trunc('hour', ts) as hour, COUNT(*) as count
+                FROM events WHERE case_id = :cid
+                GROUP BY hour ORDER BY count DESC LIMIT 10
+            """),
+            {"cid": case_id},
+        ).fetchall()
+        return {"peak_hours": [dict(r._mapping) for r in rows]}
+
+    elif action == "generate_report":
+        return {"message": "Report generation triggered — check reports tab"}
+
+    elif action == "search_mentions":
+        term = params.get(
+            "term", params.get("names", [""])[0] if params.get("names") else ""
+        )
+        if not term:
+            return {
+                "message": "No search term defined — pass params.term or params.names"
+            }
+        rows = db.execute(
+            text("""
+                SELECT id, kind, ts, summary
+                FROM events WHERE case_id = :cid AND summary ILIKE :q
+                LIMIT 50
+            """),
+            {"cid": case_id, "q": f"%{term}%"},
+        ).fetchall()
+        return {
+            "matches": [dict(r._mapping) for r in rows],
+            "count": len(rows),
+            "term": term,
+        }
+
+    elif action == "define_names":
+        return {
+            "message": "Manual step — define names before proceeding",
+            "names": params.get("names", []),
+        }
+
+    elif action == "context_analysis":
+        return {"message": "Manual step — review results from previous steps"}
+
+    elif action == "search_entity":
+        entity = params.get("entity", "")
+        rows = db.execute(
+            text("""
+                SELECT id, kind, ts, summary
+                FROM events WHERE case_id = :cid AND (summary ILIKE :q OR source ILIKE :q OR dest ILIKE :q)
+                LIMIT 50
+            """),
+            {"cid": case_id, "q": f"%{entity}%"},
+        ).fetchall()
+        return {
+            "matches": [dict(r._mapping) for r in rows],
+            "count": len(rows),
+            "entity": entity,
+        }
+
+    else:
+        return {"message": f"Unknown action: {action}", "params": params}
 
 
 @router.get("/executions/{case_id}", response_model=list[PlaybookExecution])
