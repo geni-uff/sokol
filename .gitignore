@@ -1,0 +1,78 @@
+# ── Dados forenses e evidências ──────────────────────────────────────────────
+data/
+*.ufdr
+UFDRsTest/
+
+# ── Secrets e config local ──────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+
+# ── uv ─────────────────────────────────────────────────────────────────────
+.uv/
+
+# ── Node / Frontend ────────────────────────────────────────────────────────
+node_modules/
+web/node_modules/
+web/dist/
+web/.vite/
+package-lock.json
+web/package-lock.json
+
+# ── Modelos e caches ───────────────────────────────────────────────────────
+models/
+*.onnx
+*.bin
+*.safetensors
+*.pt
+*.pth
+cache/
+.caches/
+
+# ── Docker volumes ─────────────────────────────────────────────────────────
+pgdata/
+sokol-pgdata/
+sokol-models/
+sokol-vision-models/
+
+# ── Sintético (gerado) ─────────────────────────────────────────────────────
+synth/output/
+evals/output/
+
+# ── Logs ───────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── IDE / Editor ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+*~
+
+# ── OS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Temporário ─────────────────────────────────────────────────────────────
+tmp/
+temp/
+*.tmp
+
+# ── Documentação histórica ─────────────────────────────────────────────────
+OLD_DOCS/
