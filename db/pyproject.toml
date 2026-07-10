@@ -1,0 +1,13 @@
+[project]
+name = "sokol-db"
+version = "0.1.0"
+description = "SOKOL database migrations"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.14",
+    "psycopg2-binary>=2.9",
+    "sqlalchemy>=2.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = []
