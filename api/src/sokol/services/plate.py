@@ -29,7 +29,7 @@ class PlateService:
 
     def __init__(self, api_url: Optional[str] = None):
         self.api_url = api_url or os.getenv(
-            "SOKOL_PLATE_API_URL", "http://localhost:11434"
+            "SOKOL_PLATE_API_URL", "http://localhost:8010"
         )
 
     async def detect_plates(self, image_path: str) -> PlateResult:
