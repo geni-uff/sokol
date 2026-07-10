@@ -302,7 +302,15 @@ def execute_playbook(playbook_id: str, case_id: str):
 
 def _safe_dict(row) -> dict:
     d = dict(row._mapping)
-    return {k: str(v) if hasattr(v, "isoformat") else v for k, v in d.items()}
+    out = {}
+    for k, v in d.items():
+        if hasattr(v, "isoformat"):
+            out[k] = str(v)
+        elif hasattr(v, "hex"):
+            out[k] = str(v)
+        else:
+            out[k] = v
+    return out
 
 
 def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
@@ -339,7 +347,7 @@ def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
             """),
             {"cid": case_id},
         ).fetchall()
-        return {"patterns": [dict(r._mapping) for r in rows]}
+        return {"patterns": [_safe_dict(r) for r in rows]}
 
     elif action == "extract_timeline":
         rows = db.execute(
@@ -350,7 +358,7 @@ def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
             """),
             {"cid": case_id},
         ).fetchall()
-        return {"events": [dict(r._mapping) for r in rows], "count": len(rows)}
+        return {"events": [_safe_dict(r) for r in rows], "count": len(rows)}
 
     elif action == "detect_peaks":
         rows = db.execute(
@@ -361,7 +369,7 @@ def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
             """),
             {"cid": case_id},
         ).fetchall()
-        return {"peak_hours": [dict(r._mapping) for r in rows]}
+        return {"peak_hours": [_safe_dict(r) for r in rows]}
 
     elif action == "generate_report":
         return {"message": "Report generation triggered — check reports tab"}
@@ -383,7 +391,7 @@ def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
             {"cid": case_id, "q": f"%{term}%"},
         ).fetchall()
         return {
-            "matches": [dict(r._mapping) for r in rows],
+            "matches": [_safe_dict(r) for r in rows],
             "count": len(rows),
             "term": term,
         }
@@ -408,7 +416,7 @@ def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
             {"cid": case_id, "q": f"%{entity}%"},
         ).fetchall()
         return {
-            "matches": [dict(r._mapping) for r in rows],
+            "matches": [_safe_dict(r) for r in rows],
             "count": len(rows),
             "entity": entity,
         }
