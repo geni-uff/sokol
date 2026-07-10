@@ -238,7 +238,7 @@ async def list_faces(
 
         query += " ORDER BY created_at DESC LIMIT :limit"
 
-        rows = db.execute(text(query), params).fetchall()
+        rows = db.execute(text(query), params).mappings().all()
         return [
             FaceEmbedding(
                 id=str(r["id"]),
@@ -265,19 +265,24 @@ async def search_faces(
     """Search for similar faces across all cases."""
     factory = get_session_factory()
     with factory() as db:
-        source = db.execute(
-            text(
-                "SELECT embedding, media_hash, bbox, label FROM face_embeddings WHERE id = :id"
-            ),
-            {"id": face_id},
-        ).fetchone()
+        source = (
+            db.execute(
+                text(
+                    "SELECT embedding, media_hash, bbox, label FROM face_embeddings WHERE id = :id"
+                ),
+                {"id": face_id},
+            )
+            .mappings()
+            .fetchone()
+        )
         if not source:
             raise HTTPException(status_code=404, detail="Face not found")
 
         source_embedding = str(source["embedding"])
 
-        rows = db.execute(
-            text("""
+        rows = (
+            db.execute(
+                text("""
                 SELECT
                     fe.id as face_id,
                     fe.case_id,
@@ -293,13 +298,16 @@ async def search_faces(
                 ORDER BY fe.embedding <=> :embedding::vector
                 LIMIT :limit
             """),
-            {
-                "embedding": source_embedding,
-                "exclude_case_id": case_id,
-                "threshold": threshold,
-                "limit": limit,
-            },
-        ).fetchall()
+                {
+                    "embedding": source_embedding,
+                    "exclude_case_id": case_id,
+                    "threshold": threshold,
+                    "limit": limit,
+                },
+            )
+            .mappings()
+            .all()
+        )
 
         return [
             FaceSearchResult(
