@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+"""
+SOKOL setup script — generates .env from deploy/env.example with GPU autodetection.
+
+Usage:
+    python ops/setup                 # interactive, detects GPUs
+    python ops/setup --dry-run       # print what would be written
+    python ops/setup --env-only      # only (re)generate .env, skip prompts
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import secrets
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+ENV_EXAMPLE = REPO_ROOT / "deploy" / "env.example"
+ENV_FILE = REPO_ROOT / ".env"
+
+# ---------------------------------------------------------------------------
+# GPU detection
+# ---------------------------------------------------------------------------
+
+GPU_MODELS: dict[int, str] = {}
+
+
+def detect_gpus() -> dict[int, str]:
+    """Return {index: name} of NVIDIA GPUs via nvidia-smi."""
+    global GPU_MODELS
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,name,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return {}
+
+    gpus: dict[int, str] = {}
+    for line in out.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) >= 2:
+            idx = int(parts[0])
+            name = parts[1]
+            gpus[idx] = name
+    GPU_MODELS = gpus
+    return gpus
+
+
+def pick_lmstudio_gpu(gpus: dict[int, str]) -> int | None:
+    """When 2+ GPUs, recommend the one with most VRAM for LM Studio."""
+    if not gpus:
+        return None
+    if len(gpus) == 1:
+        return list(gpus.keys())[0]
+    # Use nvidia-smi again for memory comparison
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return list(gpus.keys())[0]
+
+    best_idx, best_mem = list(gpus.keys())[0], 0
+    for line in out.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) >= 2:
+            idx, mem = int(parts[0]), int(parts[1])
+            if mem > best_mem:
+                best_idx, best_mem = idx, mem
+    return best_idx
+
+
+# ---------------------------------------------------------------------------
+# .env generation
+# ---------------------------------------------------------------------------
+
+def generate_env(gpu_mode: str = "auto", gpu_overrides: dict[str, str] | None = None) -> str:
+    """Read env.example, resolve values, return content for .env."""
+    lines = ENV_EXAMPLE.read_text().splitlines(keepends=True)
+    out: list[str] = []
+
+    gpus = detect_gpus()
+    gpu_overrides = gpu_overrides or {}
+
+    # Determine GPU assignments
+    lmstudio_gpu = pick_lmstudio_gpu(gpus)
+    aux_gpus = [i for i in gpus if i != lmstudio_gpu] if lmstudio_gpu is not None else list(gpus.keys())
+
+    def resolve_gpu_var(name: str) -> str:
+        if name in gpu_overrides:
+            return gpu_overrides[name]
+        if gpu_mode == "manual":
+            return gpu_overrides.get(name, "auto")
+        # auto mode
+        if "LMSTUDIO" in name:
+            return str(lmstudio_gpu) if lmstudio_gpu is not None else "auto"
+        if aux_gpus:
+            return str(aux_gpus[0])
+        return "auto"
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Generate secrets
+        if stripped.startswith("POSTGRES_PASSWORD=") and "change_me" in stripped:
+            secret = secrets.token_urlsafe(24)
+            line = f"POSTGRES_PASSWORD={secret}\n"
+        elif stripped.startswith("DATABASE_URL=") and "change_me" in stripped:
+            # Keep as-is; user should update after password change
+            pass
+
+        # GPU resolution
+        if stripped.startswith("SOKOL_GPU_LMSTUDIO="):
+            line = f"SOKOL_GPU_LMSTUDIO={resolve_gpu_var('SOKOL_GPU_LMSTUDIO')}\n"
+        elif stripped.startswith("SOKOL_GPU_AUX="):
+            line = f"SOKOL_GPU_AUX={resolve_gpu_var('SOKOL_GPU_AUX')}\n"
+        elif stripped.startswith("SOKOL_GPU_RERANK="):
+            line = f"SOKOL_GPU_RERANK={resolve_gpu_var('SOKOL_GPU_RERANK')}\n"
+        elif stripped.startswith("SOKOL_GPU_DOC="):
+            line = f"SOKOL_GPU_DOC={resolve_gpu_var('SOKOL_GPU_DOC')}\n"
+        elif stripped.startswith("SOKOL_GPU_ASR="):
+            line = f"SOKOL_GPU_ASR={resolve_gpu_var('SOKOL_GPU_ASR')}\n"
+        elif stripped.startswith("SOKOL_GPU_VISION="):
+            line = f"SOKOL_GPU_VISION={resolve_gpu_var('SOKOL_GPU_VISION')}\n"
+        elif stripped.startswith("SOKOL_GPU_FACE="):
+            line = f"SOKOL_GPU_FACE={resolve_gpu_var('SOKOL_GPU_FACE')}\n"
+        elif stripped.startswith("SOKOL_GPU_PLATE="):
+            line = f"SOKOL_GPU_PLATE={resolve_gpu_var('SOKOL_GPU_PLATE')}\n"
+        elif stripped.startswith("SOKOL_GPU_MODE="):
+            line = f"SOKOL_GPU_MODE={gpu_mode}\n"
+
+        out.append(line)
+
+    return "".join(out)
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
+def validate_overrides(overrides: dict[str, str], gpus: dict[int, str]) -> list[str]:
+    """Validate manual GPU overrides. Return list of errors."""
+    errors = []
+    for key, val in overrides.items():
+        if not key.startswith("SOKOL_GPU_"):
+            continue
+        try:
+            idx = int(val)
+        except ValueError:
+            errors.append(f"{key}={val} is not a valid integer GPU index")
+            continue
+        if idx not in gpus:
+            errors.append(
+                f"{key}={val} references GPU index {idx} which does not exist. "
+                f"Available: {sorted(gpus.keys())}"
+            )
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="SOKOL setup — generate .env with GPU autodetection")
+    parser.add_argument("--dry-run", action="store_true", help="Print .env content without writing")
+    parser.add_argument("--env-only", action="store_true", help="Only regenerate .env, skip prompts")
+    parser.add_argument("--gpu-mode", choices=["auto", "manual"], default=None)
+    args = parser.parse_args()
+
+    gpus = detect_gpus()
+
+    print(f"SOKOL setup — {REPO_ROOT}")
+    print()
+
+    if gpus:
+        print(f"Detected {len(gpus)} GPU(s):")
+        for idx, name in gpus.items():
+            marker = " ← LM Studio recommended" if idx == pick_lmstudio_gpu(gpus) else ""
+            print(f"  [{idx}] {name}{marker}")
+    else:
+        print("No NVIDIA GPUs detected (CPU mode)")
+
+    print()
+
+    gpu_mode = args.gpu_mode or "auto"
+    gpu_overrides: dict[str, str] = {}
+
+    if not args.env_only and gpu_mode == "auto" and len(gpus) > 1:
+        resp = input("Use manual GPU assignment? [y/N]: ").strip().lower()
+        if resp == "y":
+            gpu_mode = "manual"
+            for key in [
+                "SOKOL_GPU_LMSTUDIO", "SOKOL_GPU_AUX", "SOKOL_GPU_RERANK",
+                "SOKOL_GPU_DOC", "SOKOL_GPU_ASR", "SOKOL_GPU_VISION",
+                "SOKOL_GPU_FACE", "SOKOL_GPU_PLATE",
+            ]:
+                default = "0" if "LMSTUDIO" in key else "1"
+                val = input(f"  {key} [{default}]: ").strip() or default
+                gpu_overrides[key] = val
+
+    if gpu_mode == "manual" and gpus:
+        errors = validate_overrides(gpu_overrides, gpus)
+        if errors:
+            print("\nValidation errors:")
+            for e in errors:
+                print(f"  ✗ {e}")
+            sys.exit(1)
+
+    content = generate_env(gpu_mode=gpu_mode, gpu_overrides=gpu_overrides)
+
+    if args.dry_run:
+        print("--- .env (dry run) ---")
+        print(content)
+        return
+
+    # Idempotent: backup existing .env
+    if ENV_FILE.exists():
+        backup = ENV_FILE.with_suffix(".env.bak")
+        shutil.copy2(ENV_FILE, backup)
+        print(f"Backed up existing .env → {backup.name}")
+
+    ENV_FILE.write_text(content)
+    print(f"Wrote {ENV_FILE}")
+
+    # Update DATABASE_URL with new password
+    password_match = re.search(r"POSTGRES_PASSWORD=(.+)", content)
+    if password_match:
+        password = password_match.group(1)
+        old_content = ENV_FILE.read_text()
+        new_content = old_content.replace(
+            "sokol:change_me@sokol-postgres",
+            f"sokol:{password}@sokol-postgres",
+        )
+        ENV_FILE.write_text(new_content)
+        print(f"Updated DATABASE_URL with new password")
+
+    print()
+    print("Next steps:")
+    print("  1. Review .env and adjust SOKOL_HOST_INGEST_DIR if needed")
+    print("  2. docker compose --env-file .env -f deploy/docker-compose.yml up --build")
+
+
+if __name__ == "__main__":
+    main()
