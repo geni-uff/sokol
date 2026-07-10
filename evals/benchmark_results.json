@@ -1,0 +1,2140 @@
+{
+  "timestamp": "2026-07-09T08:41:36",
+  "models": [
+    "text-embedding-qwen3-embedding-0.6b",
+    "text-embedding-qwen3-embedding-4b",
+    "text-embedding-paraphrase-multilingual-mpnet-base-v2.gguf"
+  ],
+  "results": [
+    {
+      "model": "text-embedding-qwen3-embedding-0.6b",
+      "corpus_size": 100,
+      "corpus_embed_time_s": 4.02,
+      "queries": [
+        {
+          "id": "Q001",
+          "query": "Quem e Ana Paula Santos?",
+          "latency_ms": 29.11,
+          "top_results": [
+            "chunk_040",
+            "chunk_084",
+            "chunk_060",
+            "chunk_035",
+            "chunk_053"
+          ],
+          "expected": [
+            "chunk_002",
+            "chunk_043",
+            "chunk_015"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q002",
+          "query": "Carlos enviou mensagem para quem?",
+          "latency_ms": 33.18,
+          "top_results": [
+            "chunk_023",
+            "chunk_007",
+            "chunk_056",
+            "chunk_084",
+            "chunk_089"
+          ],
+          "expected": [
+            "chunk_008",
+            "chunk_001"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q003",
+          "query": "Quais contatos tem telefone 5511?",
+          "latency_ms": 25.0,
+          "top_results": [
+            "chunk_081",
+            "chunk_100",
+            "chunk_048",
+            "chunk_007",
+            "chunk_037"
+          ],
+          "expected": [
+            "chunk_005",
+            "chunk_001",
+            "chunk_010"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q004",
+          "query": "Fernanda Lima aparece em quantas conversas?",
+          "latency_ms": 31.26,
+          "top_results": [
+            "chunk_020",
+            "chunk_022",
+            "chunk_099",
+            "chunk_033",
+            "chunk_096"
+          ],
+          "expected": [
+            "chunk_004",
+            "chunk_022"
+          ],
+          "recall@5": 0.5
+        },
+        {
+          "id": "Q005",
+          "query": "Quem ligou para Marcos Vieira?",
+          "latency_ms": 25.85,
+          "top_results": [
+            "chunk_086",
+            "chunk_023",
+            "chunk_019",
+            "chunk_007",
+            "chunk_066"
+          ],
+          "expected": [
+            "chunk_012",
+            "chunk_035"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q006",
+          "query": "Qual o endereco da entrega combinada?",
+          "latency_ms": 24.72,
+          "top_results": [
+            "chunk_079",
+            "chunk_043",
+            "chunk_058",
+            "chunk_039",
+            "chunk_090"
+          ],
+          "expected": [
+            "chunk_003",
+            "chunk_028"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q007",
+          "query": "Qual foi o valor do pagamento confirmado?",
+          "latency_ms": 24.79,
+          "top_results": [
+            "chunk_055",
+            "chunk_066",
+            "chunk_058",
+            "chunk_056",
+            "chunk_041"
+          ],
+          "expected": [
+            "chunk_006"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q008",
+          "query": "Quando foi a reuniao no centro?",
+          "latency_ms": 30.82,
+          "top_results": [
+            "chunk_079",
+            "chunk_043",
+            "chunk_047",
+            "chunk_093",
+            "chunk_089"
+          ],
+          "expected": [
+            "chunk_003"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q009",
+          "query": "Qual o numero do documento enviado?",
+          "latency_ms": 27.21,
+          "top_results": [
+            "chunk_061",
+            "chunk_090",
+            "chunk_095",
+            "chunk_023",
+            "chunk_037"
+          ],
+          "expected": [
+            "chunk_095"
+          ],
+          "recall@5": 1.0
+        },
+        {
+          "id": "Q010",
+          "query": "Duracao da ligacao mais longa?",
+          "latency_ms": 29.24,
+          "top_results": [
+            "chunk_073",
+            "chunk_021",
+            "chunk_051",
+            "chunk_032",
+            "chunk_087"
+          ],
+          "expected": [
+            "chunk_012",
+            "chunk_035"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q011",
+          "query": "Carlos esteve na Avenida Paulista?",
+          "latency_ms": 33.2,
+          "top_results": [
+            "chunk_001",
+            "chunk_040",
+            "chunk_084",
+            "chunk_007",
+            "chunk_003"
+          ],
+          "expected": [
+            "chunk_050",
+            "chunk_062"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q012",
+          "query": "Quais bairros Carlos visitou?",
+          "latency_ms": 25.59,
+          "top_results": [
+            "chunk_024",
+            "chunk_067",
+            "chunk_009",
+            "chunk_036",
+            "chunk_075"
+          ],
+          "expected": [
+            "chunk_055",
+            "chunk_050",
+            "chunk_062"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q013",
+          "query": "Alguem esteve no Shopping Center Norte?",
+          "latency_ms": 27.94,
+          "top_results": [
+            "chunk_043",
+            "chunk_001",
+            "chunk_057",
+            "chunk_063",
+            "chunk_071"
+          ],
+          "expected": [
+            "chunk_054"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q014",
+          "query": "Registro de localizacao em Copacabana?",
+          "latency_ms": 28.47,
+          "top_results": [
+            "chunk_040",
+            "chunk_028",
+            "chunk_006",
+            "chunk_047",
+            "chunk_093"
+          ],
+          "expected": [
+            "chunk_056"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q015",
+          "query": "Quantas vezes\u6709\u4eba visitou o Parque Ibirapuera?",
+          "latency_ms": 28.55,
+          "top_results": [
+            "chunk_045",
+            "chunk_098",
+            "chunk_075",
+            "chunk_009",
+            "chunk_071"
+          ],
+          "expected": [
+            "chunk_053"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q016",
+          "query": "Quem usa mais WhatsApp?",
+          "latency_ms": 27.1,
+          "top_results": [
+            "chunk_088",
+            "chunk_086",
+            "chunk_012",
+            "chunk_022",
+            "chunk_089"
+          ],
+          "expected": [
+            "chunk_002",
+            "chunk_003",
+            "chunk_001"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q017",
+          "query": "Existe comunicacao via Telegram?",
+          "latency_ms": 28.3,
+          "top_results": [
+            "chunk_013",
+            "chunk_089",
+            "chunk_049",
+            "chunk_048",
+            "chunk_035"
+          ],
+          "expected": [
+            "chunk_020",
+            "chunk_041"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q018",
+          "query": "Houve videochamadas registradas?",
+          "latency_ms": 27.53,
+          "top_results": [
+            "chunk_086",
+            "chunk_049",
+            "chunk_078",
+            "chunk_019",
+            "chunk_012"
+          ],
+          "expected": [
+            "chunk_014"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q019",
+          "query": "Mensagens de voz no caso?",
+          "latency_ms": 27.28,
+          "top_results": [
+            "chunk_012",
+            "chunk_100",
+            "chunk_013",
+            "chunk_007",
+            "chunk_058"
+          ],
+          "expected": [
+            "chunk_008"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q020",
+          "query": "Grupo com mais participantes?",
+          "latency_ms": 28.35,
+          "top_results": [
+            "chunk_018",
+            "chunk_068",
+            "chunk_080",
+            "chunk_027",
+            "chunk_058"
+          ],
+          "expected": [
+            "chunk_016"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q021",
+          "query": "Quem acessou Instagram?",
+          "latency_ms": 33.48,
+          "top_results": [
+            "chunk_092",
+            "chunk_050",
+            "chunk_026",
+            "chunk_010",
+            "chunk_098"
+          ],
+          "expected": [
+            "chunk_075",
+            "chunk_070"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q022",
+          "query": "Busca por passagem aerea?",
+          "latency_ms": 27.94,
+          "top_results": [
+            "chunk_039",
+            "chunk_070",
+            "chunk_071",
+            "chunk_076",
+            "chunk_044"
+          ],
+          "expected": [
+            "chunk_072"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q023",
+          "query": "Acesso a sites de transporte?",
+          "latency_ms": 29.0,
+          "top_results": [
+            "chunk_039",
+            "chunk_072",
+            "chunk_044",
+            "chunk_070",
+            "chunk_030"
+          ],
+          "expected": [
+            "chunk_079",
+            "chunk_078"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q024",
+          "query": "Navegacao noturna (depois das 22h)?",
+          "latency_ms": 24.37,
+          "top_results": [
+            "chunk_071",
+            "chunk_075",
+            "chunk_067",
+            "chunk_025",
+            "chunk_044"
+          ],
+          "expected": [
+            "chunk_080",
+            "chunk_073"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q025",
+          "query": "Acesso a sites de compra online?",
+          "latency_ms": 28.74,
+          "top_results": [
+            "chunk_057",
+            "chunk_062",
+            "chunk_044",
+            "chunk_001",
+            "chunk_071"
+          ],
+          "expected": [
+            "chunk_077",
+            "chunk_076"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q026",
+          "query": "Fotos enviadas via WhatsApp?",
+          "latency_ms": 27.85,
+          "top_results": [
+            "chunk_088",
+            "chunk_086",
+            "chunk_022",
+            "chunk_036",
+            "chunk_012"
+          ],
+          "expected": [
+            "chunk_004",
+            "chunk_082"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q027",
+          "query": "Videos compartilhados?",
+          "latency_ms": 28.03,
+          "top_results": [
+            "chunk_089",
+            "chunk_049",
+            "chunk_058",
+            "chunk_041",
+            "chunk_013"
+          ],
+          "expected": [
+            "chunk_084",
+            "chunk_086"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q028",
+          "query": "Arquivos de audio no caso?",
+          "latency_ms": 30.36,
+          "top_results": [
+            "chunk_100",
+            "chunk_020",
+            "chunk_013",
+            "chunk_012",
+            "chunk_036"
+          ],
+          "expected": [
+            "chunk_085",
+            "chunk_008"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q029",
+          "query": "Documentos digitalizados?",
+          "latency_ms": 28.39,
+          "top_results": [
+            "chunk_041",
+            "chunk_058",
+            "chunk_095",
+            "chunk_085",
+            "chunk_029"
+          ],
+          "expected": [
+            "chunk_095",
+            "chunk_097"
+          ],
+          "recall@5": 0.5
+        },
+        {
+          "id": "Q030",
+          "query": "Midia com mais de 1MB?",
+          "latency_ms": 28.62,
+          "top_results": [
+            "chunk_022",
+            "chunk_086",
+            "chunk_044",
+            "chunk_012",
+            "chunk_088"
+          ],
+          "expected": [
+            "chunk_083",
+            "chunk_087"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q031",
+          "query": "Atividade nas ultimas 24 horas?",
+          "latency_ms": 28.8,
+          "top_results": [
+            "chunk_063",
+            "chunk_071",
+            "chunk_075",
+            "chunk_041",
+            "chunk_058"
+          ],
+          "expected": [
+            "chunk_005",
+            "chunk_001",
+            "chunk_010"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q032",
+          "query": "Comunicacao no fim de semana?",
+          "latency_ms": 28.9,
+          "top_results": [
+            "chunk_007",
+            "chunk_048",
+            "chunk_079",
+            "chunk_013",
+            "chunk_003"
+          ],
+          "expected": [
+            "chunk_003",
+            "chunk_015"
+          ],
+          "recall@5": 0.5
+        },
+        {
+          "id": "Q033",
+          "query": "Padrao de horario de uso do celular?",
+          "latency_ms": 28.38,
+          "top_results": [
+            "chunk_041",
+            "chunk_058",
+            "chunk_075",
+            "chunk_063",
+            "chunk_007"
+          ],
+          "expected": [
+            "chunk_080",
+            "chunk_075",
+            "chunk_070"
+          ],
+          "recall@5": 0.3333333333333333
+        },
+        {
+          "id": "Q034",
+          "query": "Mensagens entre 22h e 6h?",
+          "latency_ms": 29.57,
+          "top_results": [
+            "chunk_007",
+            "chunk_079",
+            "chunk_048",
+            "chunk_056",
+            "chunk_018"
+          ],
+          "expected": [
+            "chunk_073"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q035",
+          "query": "Atividade intensa em algum periodo?",
+          "latency_ms": 28.8,
+          "top_results": [
+            "chunk_041",
+            "chunk_044",
+            "chunk_071",
+            "chunk_075",
+            "chunk_031"
+          ],
+          "expected": [
+            "chunk_002",
+            "chunk_003",
+            "chunk_001"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q036",
+          "query": "Carlos combinou entrega com quem?",
+          "latency_ms": 29.03,
+          "top_results": [
+            "chunk_048",
+            "chunk_007",
+            "chunk_079",
+            "chunk_058",
+            "chunk_065"
+          ],
+          "expected": [
+            "chunk_003",
+            "chunk_001"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q037",
+          "query": "Rede de comunicacao do suspeito principal?",
+          "latency_ms": 28.55,
+          "top_results": [
+            "chunk_089",
+            "chunk_048",
+            "chunk_007",
+            "chunk_013",
+            "chunk_049"
+          ],
+          "expected": [
+            "chunk_002",
+            "chunk_001",
+            "chunk_012"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q038",
+          "query": "Evidencias de deslocamento?",
+          "latency_ms": 28.49,
+          "top_results": [
+            "chunk_039",
+            "chunk_041",
+            "chunk_058",
+            "chunk_054",
+            "chunk_038"
+          ],
+          "expected": [
+            "chunk_055",
+            "chunk_050",
+            "chunk_062"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q039",
+          "query": "Padrao de gastos do investigado?",
+          "latency_ms": 28.82,
+          "top_results": [
+            "chunk_076",
+            "chunk_070",
+            "chunk_096",
+            "chunk_044",
+            "chunk_067"
+          ],
+          "expected": [
+            "chunk_006",
+            "chunk_077",
+            "chunk_076"
+          ],
+          "recall@5": 0.3333333333333333
+        },
+        {
+          "id": "Q040",
+          "query": "Resumo completo da investigacao?",
+          "latency_ms": 31.71,
+          "top_results": [
+            "chunk_085",
+            "chunk_002",
+            "chunk_058",
+            "chunk_054",
+            "chunk_014"
+          ],
+          "expected": [
+            "chunk_070",
+            "chunk_001",
+            "chunk_050"
+          ],
+          "recall@5": 0.0
+        }
+      ],
+      "aggregate": {
+        "recall@k": {
+          "recall@1": 0.0083,
+          "recall@3": 0.0667,
+          "recall@5": 0.0792,
+          "recall@10": 0.15
+        },
+        "precision@k": {
+          "precision@1": 0.025,
+          "precision@3": 0.0417,
+          "precision@5": 0.03,
+          "precision@10": 0.0275
+        },
+        "mrr": 0.0805,
+        "latency_ms": {
+          "p50": 28.52,
+          "p95": 33.2,
+          "p99": 33.48,
+          "mean": 28.53
+        },
+        "total_queries": 40,
+        "successful_queries": 40
+      }
+    },
+    {
+      "model": "text-embedding-qwen3-embedding-4b",
+      "corpus_size": 100,
+      "corpus_embed_time_s": 6.22,
+      "queries": [
+        {
+          "id": "Q001",
+          "query": "Quem e Ana Paula Santos?",
+          "latency_ms": 64.36,
+          "top_results": [
+            "chunk_040",
+            "chunk_053",
+            "chunk_035",
+            "chunk_060",
+            "chunk_084"
+          ],
+          "expected": [
+            "chunk_002",
+            "chunk_043",
+            "chunk_015"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q002",
+          "query": "Carlos enviou mensagem para quem?",
+          "latency_ms": 61.06,
+          "top_results": [
+            "chunk_007",
+            "chunk_003",
+            "chunk_048",
+            "chunk_079",
+            "chunk_084"
+          ],
+          "expected": [
+            "chunk_008",
+            "chunk_001"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q003",
+          "query": "Quais contatos tem telefone 5511?",
+          "latency_ms": 41.32,
+          "top_results": [
+            "chunk_034",
+            "chunk_042",
+            "chunk_048",
+            "chunk_065",
+            "chunk_007"
+          ],
+          "expected": [
+            "chunk_005",
+            "chunk_001",
+            "chunk_010"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q004",
+          "query": "Fernanda Lima aparece em quantas conversas?",
+          "latency_ms": 52.56,
+          "top_results": [
+            "chunk_020",
+            "chunk_022",
+            "chunk_099",
+            "chunk_096",
+            "chunk_033"
+          ],
+          "expected": [
+            "chunk_004",
+            "chunk_022"
+          ],
+          "recall@5": 0.5
+        },
+        {
+          "id": "Q005",
+          "query": "Quem ligou para Marcos Vieira?",
+          "latency_ms": 41.15,
+          "top_results": [
+            "chunk_086",
+            "chunk_066",
+            "chunk_019",
+            "chunk_023",
+            "chunk_070"
+          ],
+          "expected": [
+            "chunk_012",
+            "chunk_035"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q006",
+          "query": "Qual o endereco da entrega combinada?",
+          "latency_ms": 42.18,
+          "top_results": [
+            "chunk_079",
+            "chunk_065",
+            "chunk_042",
+            "chunk_075",
+            "chunk_055"
+          ],
+          "expected": [
+            "chunk_003",
+            "chunk_028"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q007",
+          "query": "Qual foi o valor do pagamento confirmado?",
+          "latency_ms": 42.44,
+          "top_results": [
+            "chunk_055",
+            "chunk_066",
+            "chunk_058",
+            "chunk_041",
+            "chunk_015"
+          ],
+          "expected": [
+            "chunk_006"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q008",
+          "query": "Quando foi a reuniao no centro?",
+          "latency_ms": 47.12,
+          "top_results": [
+            "chunk_079",
+            "chunk_074",
+            "chunk_004",
+            "chunk_003",
+            "chunk_006"
+          ],
+          "expected": [
+            "chunk_003"
+          ],
+          "recall@5": 1.0
+        },
+        {
+          "id": "Q009",
+          "query": "Qual o numero do documento enviado?",
+          "latency_ms": 54.13,
+          "top_results": [
+            "chunk_090",
+            "chunk_061",
+            "chunk_015",
+            "chunk_095",
+            "chunk_011"
+          ],
+          "expected": [
+            "chunk_095"
+          ],
+          "recall@5": 1.0
+        },
+        {
+          "id": "Q010",
+          "query": "Duracao da ligacao mais longa?",
+          "latency_ms": 40.38,
+          "top_results": [
+            "chunk_065",
+            "chunk_032",
+            "chunk_034",
+            "chunk_052",
+            "chunk_016"
+          ],
+          "expected": [
+            "chunk_012",
+            "chunk_035"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q011",
+          "query": "Carlos esteve na Avenida Paulista?",
+          "latency_ms": 46.13,
+          "top_results": [
+            "chunk_040",
+            "chunk_003",
+            "chunk_009",
+            "chunk_084",
+            "chunk_006"
+          ],
+          "expected": [
+            "chunk_050",
+            "chunk_062"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q012",
+          "query": "Quais bairros Carlos visitou?",
+          "latency_ms": 42.44,
+          "top_results": [
+            "chunk_009",
+            "chunk_002",
+            "chunk_085",
+            "chunk_029",
+            "chunk_045"
+          ],
+          "expected": [
+            "chunk_055",
+            "chunk_050",
+            "chunk_062"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q013",
+          "query": "Alguem esteve no Shopping Center Norte?",
+          "latency_ms": 49.5,
+          "top_results": [
+            "chunk_063",
+            "chunk_001",
+            "chunk_057",
+            "chunk_043",
+            "chunk_003"
+          ],
+          "expected": [
+            "chunk_054"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q014",
+          "query": "Registro de localizacao em Copacabana?",
+          "latency_ms": 59.82,
+          "top_results": [
+            "chunk_040",
+            "chunk_028",
+            "chunk_006",
+            "chunk_074",
+            "chunk_047"
+          ],
+          "expected": [
+            "chunk_056"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q015",
+          "query": "Quantas vezes\u6709\u4eba visitou o Parque Ibirapuera?",
+          "latency_ms": 42.61,
+          "top_results": [
+            "chunk_045",
+            "chunk_009",
+            "chunk_075",
+            "chunk_031",
+            "chunk_062"
+          ],
+          "expected": [
+            "chunk_053"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q016",
+          "query": "Quem usa mais WhatsApp?",
+          "latency_ms": 52.5,
+          "top_results": [
+            "chunk_007",
+            "chunk_086",
+            "chunk_022",
+            "chunk_065",
+            "chunk_001"
+          ],
+          "expected": [
+            "chunk_002",
+            "chunk_003",
+            "chunk_001"
+          ],
+          "recall@5": 0.3333333333333333
+        },
+        {
+          "id": "Q017",
+          "query": "Existe comunicacao via Telegram?",
+          "latency_ms": 54.36,
+          "top_results": [
+            "chunk_048",
+            "chunk_035",
+            "chunk_049",
+            "chunk_013",
+            "chunk_042"
+          ],
+          "expected": [
+            "chunk_020",
+            "chunk_041"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q018",
+          "query": "Houve videochamadas registradas?",
+          "latency_ms": 43.4,
+          "top_results": [
+            "chunk_016",
+            "chunk_059",
+            "chunk_053",
+            "chunk_052",
+            "chunk_073"
+          ],
+          "expected": [
+            "chunk_014"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q019",
+          "query": "Mensagens de voz no caso?",
+          "latency_ms": 44.78,
+          "top_results": [
+            "chunk_065",
+            "chunk_007",
+            "chunk_048",
+            "chunk_084",
+            "chunk_003"
+          ],
+          "expected": [
+            "chunk_008"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q020",
+          "query": "Grupo com mais participantes?",
+          "latency_ms": 57.02,
+          "top_results": [
+            "chunk_080",
+            "chunk_018",
+            "chunk_027",
+            "chunk_068",
+            "chunk_042"
+          ],
+          "expected": [
+            "chunk_016"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q021",
+          "query": "Quem acessou Instagram?",
+          "latency_ms": 63.43,
+          "top_results": [
+            "chunk_092",
+            "chunk_010",
+            "chunk_026",
+            "chunk_030",
+            "chunk_057"
+          ],
+          "expected": [
+            "chunk_075",
+            "chunk_070"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q022",
+          "query": "Busca por passagem aerea?",
+          "latency_ms": 42.21,
+          "top_results": [
+            "chunk_039",
+            "chunk_096",
+            "chunk_067",
+            "chunk_070",
+            "chunk_044"
+          ],
+          "expected": [
+            "chunk_072"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q023",
+          "query": "Acesso a sites de transporte?",
+          "latency_ms": 57.14,
+          "top_results": [
+            "chunk_075",
+            "chunk_098",
+            "chunk_039",
+            "chunk_001",
+            "chunk_067"
+          ],
+          "expected": [
+            "chunk_079",
+            "chunk_078"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q024",
+          "query": "Navegacao noturna (depois das 22h)?",
+          "latency_ms": 45.05,
+          "top_results": [
+            "chunk_075",
+            "chunk_062",
+            "chunk_044",
+            "chunk_001",
+            "chunk_098"
+          ],
+          "expected": [
+            "chunk_080",
+            "chunk_073"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q025",
+          "query": "Acesso a sites de compra online?",
+          "latency_ms": 41.22,
+          "top_results": [
+            "chunk_001",
+            "chunk_057",
+            "chunk_062",
+            "chunk_098",
+            "chunk_064"
+          ],
+          "expected": [
+            "chunk_077",
+            "chunk_076"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q026",
+          "query": "Fotos enviadas via WhatsApp?",
+          "latency_ms": 60.06,
+          "top_results": [
+            "chunk_088",
+            "chunk_022",
+            "chunk_086",
+            "chunk_097",
+            "chunk_036"
+          ],
+          "expected": [
+            "chunk_004",
+            "chunk_082"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q027",
+          "query": "Videos compartilhados?",
+          "latency_ms": 56.29,
+          "top_results": [
+            "chunk_049",
+            "chunk_086",
+            "chunk_035",
+            "chunk_022",
+            "chunk_016"
+          ],
+          "expected": [
+            "chunk_084",
+            "chunk_086"
+          ],
+          "recall@5": 0.5
+        },
+        {
+          "id": "Q028",
+          "query": "Arquivos de audio no caso?",
+          "latency_ms": 59.05,
+          "top_results": [
+            "chunk_012",
+            "chunk_020",
+            "chunk_013",
+            "chunk_095",
+            "chunk_007"
+          ],
+          "expected": [
+            "chunk_085",
+            "chunk_008"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q029",
+          "query": "Documentos digitalizados?",
+          "latency_ms": 51.75,
+          "top_results": [
+            "chunk_058",
+            "chunk_041",
+            "chunk_095",
+            "chunk_090",
+            "chunk_015"
+          ],
+          "expected": [
+            "chunk_095",
+            "chunk_097"
+          ],
+          "recall@5": 0.5
+        },
+        {
+          "id": "Q030",
+          "query": "Midia com mais de 1MB?",
+          "latency_ms": 43.27,
+          "top_results": [
+            "chunk_088",
+            "chunk_086",
+            "chunk_012",
+            "chunk_022",
+            "chunk_095"
+          ],
+          "expected": [
+            "chunk_083",
+            "chunk_087"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q031",
+          "query": "Atividade nas ultimas 24 horas?",
+          "latency_ms": 43.41,
+          "top_results": [
+            "chunk_063",
+            "chunk_001",
+            "chunk_075",
+            "chunk_062",
+            "chunk_007"
+          ],
+          "expected": [
+            "chunk_005",
+            "chunk_001",
+            "chunk_010"
+          ],
+          "recall@5": 0.3333333333333333
+        },
+        {
+          "id": "Q032",
+          "query": "Comunicacao no fim de semana?",
+          "latency_ms": 42.32,
+          "top_results": [
+            "chunk_048",
+            "chunk_007",
+            "chunk_065",
+            "chunk_079",
+            "chunk_034"
+          ],
+          "expected": [
+            "chunk_003",
+            "chunk_015"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q033",
+          "query": "Padrao de horario de uso do celular?",
+          "latency_ms": 44.55,
+          "top_results": [
+            "chunk_007",
+            "chunk_001",
+            "chunk_075",
+            "chunk_098",
+            "chunk_048"
+          ],
+          "expected": [
+            "chunk_080",
+            "chunk_075",
+            "chunk_070"
+          ],
+          "recall@5": 0.3333333333333333
+        },
+        {
+          "id": "Q034",
+          "query": "Mensagens entre 22h e 6h?",
+          "latency_ms": 37.01,
+          "top_results": [
+            "chunk_079",
+            "chunk_048",
+            "chunk_007",
+            "chunk_084",
+            "chunk_003"
+          ],
+          "expected": [
+            "chunk_073"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q035",
+          "query": "Atividade intensa em algum periodo?",
+          "latency_ms": 44.62,
+          "top_results": [
+            "chunk_007",
+            "chunk_001",
+            "chunk_048",
+            "chunk_031",
+            "chunk_075"
+          ],
+          "expected": [
+            "chunk_002",
+            "chunk_003",
+            "chunk_001"
+          ],
+          "recall@5": 0.3333333333333333
+        },
+        {
+          "id": "Q036",
+          "query": "Carlos combinou entrega com quem?",
+          "latency_ms": 58.56,
+          "top_results": [
+            "chunk_079",
+            "chunk_007",
+            "chunk_058",
+            "chunk_065",
+            "chunk_003"
+          ],
+          "expected": [
+            "chunk_003",
+            "chunk_001"
+          ],
+          "recall@5": 0.5
+        },
+        {
+          "id": "Q037",
+          "query": "Rede de comunicacao do suspeito principal?",
+          "latency_ms": 41.89,
+          "top_results": [
+            "chunk_048",
+            "chunk_007",
+            "chunk_034",
+            "chunk_016",
+            "chunk_065"
+          ],
+          "expected": [
+            "chunk_002",
+            "chunk_001",
+            "chunk_012"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q038",
+          "query": "Evidencias de deslocamento?",
+          "latency_ms": 42.84,
+          "top_results": [
+            "chunk_058",
+            "chunk_065",
+            "chunk_041",
+            "chunk_042",
+            "chunk_034"
+          ],
+          "expected": [
+            "chunk_055",
+            "chunk_050",
+            "chunk_062"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q039",
+          "query": "Padrao de gastos do investigado?",
+          "latency_ms": 42.94,
+          "top_results": [
+            "chunk_070",
+            "chunk_096",
+            "chunk_076",
+            "chunk_055",
+            "chunk_039"
+          ],
+          "expected": [
+            "chunk_006",
+            "chunk_077",
+            "chunk_076"
+          ],
+          "recall@5": 0.3333333333333333
+        },
+        {
+          "id": "Q040",
+          "query": "Resumo completo da investigacao?",
+          "latency_ms": 57.57,
+          "top_results": [
+            "chunk_002",
+            "chunk_085",
+            "chunk_015",
+            "chunk_001",
+            "chunk_067"
+          ],
+          "expected": [
+            "chunk_070",
+            "chunk_001",
+            "chunk_050"
+          ],
+          "recall@5": 0.3333333333333333
+        }
+      ],
+      "aggregate": {
+        "recall@k": {
+          "recall@1": 0.0,
+          "recall@3": 0.0708,
+          "recall@5": 0.15,
+          "recall@10": 0.2167
+        },
+        "precision@k": {
+          "precision@1": 0.0,
+          "precision@3": 0.0583,
+          "precision@5": 0.06,
+          "precision@10": 0.045
+        },
+        "mrr": 0.1202,
+        "latency_ms": {
+          "p50": 44.92,
+          "p95": 63.43,
+          "p99": 64.36,
+          "mean": 48.86
+        },
+        "total_queries": 40,
+        "successful_queries": 40
+      }
+    },
+    {
+      "model": "text-embedding-paraphrase-multilingual-mpnet-base-v2.gguf",
+      "corpus_size": 100,
+      "corpus_embed_time_s": 3.22,
+      "queries": [
+        {
+          "id": "Q001",
+          "query": "Quem e Ana Paula Santos?",
+          "latency_ms": 19.98,
+          "top_results": [
+            "chunk_053",
+            "chunk_040",
+            "chunk_060",
+            "chunk_084",
+            "chunk_065"
+          ],
+          "expected": [
+            "chunk_002",
+            "chunk_043",
+            "chunk_015"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q002",
+          "query": "Carlos enviou mensagem para quem?",
+          "latency_ms": 19.08,
+          "top_results": [
+            "chunk_089",
+            "chunk_094",
+            "chunk_049",
+            "chunk_023",
+            "chunk_065"
+          ],
+          "expected": [
+            "chunk_008",
+            "chunk_001"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q003",
+          "query": "Quais contatos tem telefone 5511?",
+          "latency_ms": 18.64,
+          "top_results": [
+            "chunk_037",
+            "chunk_048",
+            "chunk_007",
+            "chunk_004",
+            "chunk_077"
+          ],
+          "expected": [
+            "chunk_005",
+            "chunk_001",
+            "chunk_010"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q004",
+          "query": "Fernanda Lima aparece em quantas conversas?",
+          "latency_ms": 21.18,
+          "top_results": [
+            "chunk_034",
+            "chunk_099",
+            "chunk_084",
+            "chunk_020",
+            "chunk_083"
+          ],
+          "expected": [
+            "chunk_004",
+            "chunk_022"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q005",
+          "query": "Quem ligou para Marcos Vieira?",
+          "latency_ms": 17.39,
+          "top_results": [
+            "chunk_094",
+            "chunk_032",
+            "chunk_021",
+            "chunk_052",
+            "chunk_051"
+          ],
+          "expected": [
+            "chunk_012",
+            "chunk_035"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q006",
+          "query": "Qual o endereco da entrega combinada?",
+          "latency_ms": 21.14,
+          "top_results": [
+            "chunk_079",
+            "chunk_055",
+            "chunk_066",
+            "chunk_054",
+            "chunk_011"
+          ],
+          "expected": [
+            "chunk_003",
+            "chunk_028"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q007",
+          "query": "Qual foi o valor do pagamento confirmado?",
+          "latency_ms": 20.16,
+          "top_results": [
+            "chunk_055",
+            "chunk_066",
+            "chunk_058",
+            "chunk_011",
+            "chunk_041"
+          ],
+          "expected": [
+            "chunk_006"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q008",
+          "query": "Quando foi a reuniao no centro?",
+          "latency_ms": 22.6,
+          "top_results": [
+            "chunk_079",
+            "chunk_018",
+            "chunk_027",
+            "chunk_080",
+            "chunk_007"
+          ],
+          "expected": [
+            "chunk_003"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q009",
+          "query": "Qual o numero do documento enviado?",
+          "latency_ms": 19.59,
+          "top_results": [
+            "chunk_037",
+            "chunk_077",
+            "chunk_090",
+            "chunk_011",
+            "chunk_061"
+          ],
+          "expected": [
+            "chunk_095"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q010",
+          "query": "Duracao da ligacao mais longa?",
+          "latency_ms": 18.21,
+          "top_results": [
+            "chunk_007",
+            "chunk_064",
+            "chunk_048",
+            "chunk_079",
+            "chunk_001"
+          ],
+          "expected": [
+            "chunk_012",
+            "chunk_035"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q011",
+          "query": "Carlos esteve na Avenida Paulista?",
+          "latency_ms": 21.7,
+          "top_results": [
+            "chunk_021",
+            "chunk_079",
+            "chunk_094",
+            "chunk_065",
+            "chunk_032"
+          ],
+          "expected": [
+            "chunk_050",
+            "chunk_062"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q012",
+          "query": "Quais bairros Carlos visitou?",
+          "latency_ms": 14.98,
+          "top_results": [
+            "chunk_074",
+            "chunk_094",
+            "chunk_009",
+            "chunk_043",
+            "chunk_083"
+          ],
+          "expected": [
+            "chunk_055",
+            "chunk_050",
+            "chunk_062"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q013",
+          "query": "Alguem esteve no Shopping Center Norte?",
+          "latency_ms": 17.39,
+          "top_results": [
+            "chunk_071",
+            "chunk_079",
+            "chunk_075",
+            "chunk_067",
+            "chunk_044"
+          ],
+          "expected": [
+            "chunk_054"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q014",
+          "query": "Registro de localizacao em Copacabana?",
+          "latency_ms": 17.59,
+          "top_results": [
+            "chunk_040",
+            "chunk_074",
+            "chunk_028",
+            "chunk_006",
+            "chunk_044"
+          ],
+          "expected": [
+            "chunk_056"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q015",
+          "query": "Quantas vezes\u6709\u4eba visitou o Parque Ibirapuera?",
+          "latency_ms": 16.35,
+          "top_results": [
+            "chunk_083",
+            "chunk_009",
+            "chunk_074",
+            "chunk_045",
+            "chunk_047"
+          ],
+          "expected": [
+            "chunk_053"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q016",
+          "query": "Quem usa mais WhatsApp?",
+          "latency_ms": 17.17,
+          "top_results": [
+            "chunk_022",
+            "chunk_088",
+            "chunk_086",
+            "chunk_012",
+            "chunk_097"
+          ],
+          "expected": [
+            "chunk_002",
+            "chunk_003",
+            "chunk_001"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q017",
+          "query": "Existe comunicacao via Telegram?",
+          "latency_ms": 15.96,
+          "top_results": [
+            "chunk_089",
+            "chunk_013",
+            "chunk_035",
+            "chunk_049",
+            "chunk_048"
+          ],
+          "expected": [
+            "chunk_020",
+            "chunk_041"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q018",
+          "query": "Houve videochamadas registradas?",
+          "latency_ms": 17.09,
+          "top_results": [
+            "chunk_019",
+            "chunk_078",
+            "chunk_008",
+            "chunk_049",
+            "chunk_035"
+          ],
+          "expected": [
+            "chunk_014"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q019",
+          "query": "Mensagens de voz no caso?",
+          "latency_ms": 15.47,
+          "top_results": [
+            "chunk_013",
+            "chunk_054",
+            "chunk_048",
+            "chunk_007",
+            "chunk_051"
+          ],
+          "expected": [
+            "chunk_008"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q020",
+          "query": "Grupo com mais participantes?",
+          "latency_ms": 17.24,
+          "top_results": [
+            "chunk_018",
+            "chunk_080",
+            "chunk_027",
+            "chunk_068",
+            "chunk_054"
+          ],
+          "expected": [
+            "chunk_016"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q021",
+          "query": "Quem acessou Instagram?",
+          "latency_ms": 20.48,
+          "top_results": [
+            "chunk_035",
+            "chunk_010",
+            "chunk_091",
+            "chunk_030",
+            "chunk_050"
+          ],
+          "expected": [
+            "chunk_075",
+            "chunk_070"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q022",
+          "query": "Busca por passagem aerea?",
+          "latency_ms": 15.37,
+          "top_results": [
+            "chunk_039",
+            "chunk_067",
+            "chunk_044",
+            "chunk_075",
+            "chunk_071"
+          ],
+          "expected": [
+            "chunk_072"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q023",
+          "query": "Acesso a sites de transporte?",
+          "latency_ms": 17.14,
+          "top_results": [
+            "chunk_075",
+            "chunk_039",
+            "chunk_062",
+            "chunk_067",
+            "chunk_044"
+          ],
+          "expected": [
+            "chunk_079",
+            "chunk_078"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q024",
+          "query": "Navegacao noturna (depois das 22h)?",
+          "latency_ms": 17.85,
+          "top_results": [
+            "chunk_071",
+            "chunk_067",
+            "chunk_044",
+            "chunk_064",
+            "chunk_079"
+          ],
+          "expected": [
+            "chunk_080",
+            "chunk_073"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q025",
+          "query": "Acesso a sites de compra online?",
+          "latency_ms": 17.47,
+          "top_results": [
+            "chunk_062",
+            "chunk_098",
+            "chunk_071",
+            "chunk_044",
+            "chunk_075"
+          ],
+          "expected": [
+            "chunk_077",
+            "chunk_076"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q026",
+          "query": "Fotos enviadas via WhatsApp?",
+          "latency_ms": 16.47,
+          "top_results": [
+            "chunk_088",
+            "chunk_022",
+            "chunk_086",
+            "chunk_012",
+            "chunk_097"
+          ],
+          "expected": [
+            "chunk_004",
+            "chunk_082"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q027",
+          "query": "Videos compartilhados?",
+          "latency_ms": 17.79,
+          "top_results": [
+            "chunk_049",
+            "chunk_035",
+            "chunk_086",
+            "chunk_022",
+            "chunk_091"
+          ],
+          "expected": [
+            "chunk_084",
+            "chunk_086"
+          ],
+          "recall@5": 0.5
+        },
+        {
+          "id": "Q028",
+          "query": "Arquivos de audio no caso?",
+          "latency_ms": 16.92,
+          "top_results": [
+            "chunk_100",
+            "chunk_013",
+            "chunk_012",
+            "chunk_020",
+            "chunk_095"
+          ],
+          "expected": [
+            "chunk_085",
+            "chunk_008"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q029",
+          "query": "Documentos digitalizados?",
+          "latency_ms": 16.27,
+          "top_results": [
+            "chunk_058",
+            "chunk_041",
+            "chunk_095",
+            "chunk_015",
+            "chunk_077"
+          ],
+          "expected": [
+            "chunk_095",
+            "chunk_097"
+          ],
+          "recall@5": 0.5
+        },
+        {
+          "id": "Q030",
+          "query": "Midia com mais de 1MB?",
+          "latency_ms": 17.59,
+          "top_results": [
+            "chunk_088",
+            "chunk_012",
+            "chunk_086",
+            "chunk_022",
+            "chunk_098"
+          ],
+          "expected": [
+            "chunk_083",
+            "chunk_087"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q031",
+          "query": "Atividade nas ultimas 24 horas?",
+          "latency_ms": 20.76,
+          "top_results": [
+            "chunk_025",
+            "chunk_063",
+            "chunk_079",
+            "chunk_048",
+            "chunk_007"
+          ],
+          "expected": [
+            "chunk_005",
+            "chunk_001",
+            "chunk_010"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q032",
+          "query": "Comunicacao no fim de semana?",
+          "latency_ms": 20.38,
+          "top_results": [
+            "chunk_007",
+            "chunk_048",
+            "chunk_056",
+            "chunk_084",
+            "chunk_080"
+          ],
+          "expected": [
+            "chunk_003",
+            "chunk_015"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q033",
+          "query": "Padrao de horario de uso do celular?",
+          "latency_ms": 10.31,
+          "top_results": [
+            "chunk_007",
+            "chunk_048",
+            "chunk_075",
+            "chunk_098",
+            "chunk_079"
+          ],
+          "expected": [
+            "chunk_080",
+            "chunk_075",
+            "chunk_070"
+          ],
+          "recall@5": 0.3333333333333333
+        },
+        {
+          "id": "Q034",
+          "query": "Mensagens entre 22h e 6h?",
+          "latency_ms": 20.52,
+          "top_results": [
+            "chunk_048",
+            "chunk_079",
+            "chunk_007",
+            "chunk_025",
+            "chunk_071"
+          ],
+          "expected": [
+            "chunk_073"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q035",
+          "query": "Atividade intensa em algum periodo?",
+          "latency_ms": 15.29,
+          "top_results": [
+            "chunk_024",
+            "chunk_045",
+            "chunk_031",
+            "chunk_009",
+            "chunk_083"
+          ],
+          "expected": [
+            "chunk_002",
+            "chunk_003",
+            "chunk_001"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q036",
+          "query": "Carlos combinou entrega com quem?",
+          "latency_ms": 15.11,
+          "top_results": [
+            "chunk_065",
+            "chunk_021",
+            "chunk_094",
+            "chunk_027",
+            "chunk_079"
+          ],
+          "expected": [
+            "chunk_003",
+            "chunk_001"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q037",
+          "query": "Rede de comunicacao do suspeito principal?",
+          "latency_ms": 21.69,
+          "top_results": [
+            "chunk_007",
+            "chunk_082",
+            "chunk_089",
+            "chunk_048",
+            "chunk_052"
+          ],
+          "expected": [
+            "chunk_002",
+            "chunk_001",
+            "chunk_012"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q038",
+          "query": "Evidencias de deslocamento?",
+          "latency_ms": 14.13,
+          "top_results": [
+            "chunk_079",
+            "chunk_041",
+            "chunk_024",
+            "chunk_058",
+            "chunk_074"
+          ],
+          "expected": [
+            "chunk_055",
+            "chunk_050",
+            "chunk_062"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q039",
+          "query": "Padrao de gastos do investigado?",
+          "latency_ms": 15.53,
+          "top_results": [
+            "chunk_055",
+            "chunk_066",
+            "chunk_015",
+            "chunk_054",
+            "chunk_033"
+          ],
+          "expected": [
+            "chunk_006",
+            "chunk_077",
+            "chunk_076"
+          ],
+          "recall@5": 0.0
+        },
+        {
+          "id": "Q040",
+          "query": "Resumo completo da investigacao?",
+          "latency_ms": 17.53,
+          "top_results": [
+            "chunk_015",
+            "chunk_085",
+            "chunk_002",
+            "chunk_038",
+            "chunk_054"
+          ],
+          "expected": [
+            "chunk_070",
+            "chunk_001",
+            "chunk_050"
+          ],
+          "recall@5": 0.0
+        }
+      ],
+      "aggregate": {
+        "recall@k": {
+          "recall@1": 0.0,
+          "recall@3": 0.0333,
+          "recall@5": 0.0333,
+          "recall@10": 0.0708
+        },
+        "precision@k": {
+          "precision@1": 0.0,
+          "precision@3": 0.025,
+          "precision@5": 0.015,
+          "precision@10": 0.015
+        },
+        "mrr": 0.0342,
+        "latency_ms": {
+          "p50": 17.5,
+          "p95": 21.7,
+          "p99": 22.6,
+          "mean": 17.84
+        },
+        "total_queries": 40,
+        "successful_queries": 40
+      }
+    }
+  ]
+}
