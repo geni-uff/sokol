@@ -1,0 +1,17 @@
+[project]
+name = "sokol-vision"
+version = "0.1.0"
+description = "SOKOL Vision Service — Object detection with YOLO models"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "ultralytics",
+    "pillow",
+    "httpx",
+    "huggingface-hub",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
