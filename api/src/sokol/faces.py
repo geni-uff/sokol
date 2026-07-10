@@ -110,7 +110,7 @@ async def detect_faces_in_case(
                 text("""
                     SELECT id FROM face_embeddings
                     WHERE case_id = :cid AND media_hash = :hash
-                    AND bbox = :bbox::jsonb
+                    AND bbox = CAST(:bbox AS jsonb)
                 """),
                 {"cid": case_id, "hash": media_hash, "bbox": json.dumps(face["bbox"])},
             ).fetchone()
@@ -119,7 +119,7 @@ async def detect_faces_in_case(
                 db.execute(
                     text("""
                         INSERT INTO face_embeddings (case_id, media_hash, bbox, embedding, confidence, age, gender)
-                        VALUES (:cid, :hash, :bbox::jsonb, :embedding::vector, :conf, :age, :gender)
+                                VALUES (:cid, :hash, CAST(:bbox AS jsonb), CAST(:embedding AS vector), :conf, :age, :gender)
                     """),
                     {
                         "cid": case_id,
@@ -180,7 +180,7 @@ async def detect_faces_all(case_id: str):
                         text("""
                             SELECT id FROM face_embeddings
                             WHERE case_id = :cid AND media_hash = :hash
-                            AND bbox = :bbox::jsonb
+                            AND bbox = CAST(:bbox AS jsonb)
                         """),
                         {
                             "cid": case_id,
@@ -193,7 +193,7 @@ async def detect_faces_all(case_id: str):
                         db.execute(
                             text("""
                                 INSERT INTO face_embeddings (case_id, media_hash, bbox, embedding, confidence, age, gender)
-                                VALUES (:cid, :hash, :bbox::jsonb, :embedding::vector, :conf, :age, :gender)
+                        VALUES (:cid, :hash, CAST(:bbox AS jsonb), CAST(:embedding AS vector), :conf, :age, :gender)
                             """),
                             {
                                 "cid": case_id,

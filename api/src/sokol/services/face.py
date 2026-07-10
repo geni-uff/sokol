@@ -28,11 +28,16 @@ async def detect_faces(file_path: str, image_id: Optional[str] = None) -> dict:
             return resp.json()
 
 
-async def detect_faces_bytes(content: bytes, filename: str = "image.jpg") -> dict:
+async def detect_faces_bytes(
+    content: bytes, filename: str = "image.jpg", image_id: Optional[str] = None
+) -> dict:
     """Detect faces from image bytes."""
     async with httpx.AsyncClient(timeout=60) as client:
         files = {"file": (filename, content, "image/jpeg")}
-        resp = await client.post(f"{FACE_URL}/detect", files=files)
+        data = {}
+        if image_id:
+            data["image_id"] = image_id
+        resp = await client.post(f"{FACE_URL}/detect", files=files, data=data)
         resp.raise_for_status()
         return resp.json()
 

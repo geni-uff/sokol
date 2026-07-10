@@ -226,7 +226,7 @@ def _run_face_job(job_id: str, case_id: str, image_hashes: list[str]):
                         for face in faces:
                             existing = db.execute(
                                 text(
-                                    "SELECT id FROM face_embeddings WHERE case_id = :cid AND media_hash = :hash AND bbox = :bbox::jsonb"
+                                    "SELECT id FROM face_embeddings WHERE case_id = :cid AND media_hash = :hash AND bbox = CAST(:bbox AS jsonb)"
                                 ),
                                 {
                                     "cid": case_id,
@@ -238,7 +238,7 @@ def _run_face_job(job_id: str, case_id: str, image_hashes: list[str]):
                                 db.execute(
                                     text("""
                                         INSERT INTO face_embeddings (case_id, media_hash, bbox, embedding, confidence, age, gender)
-                                        VALUES (:cid, :hash, :bbox::jsonb, :embedding::vector, :conf, :age, :gender)
+                                        VALUES (:cid, :hash, CAST(:bbox AS jsonb), CAST(:embedding AS vector), :conf, :age, :gender)
                                     """),
                                     {
                                         "cid": case_id,
@@ -313,7 +313,7 @@ def _run_plate_job(job_id: str, case_id: str, image_hashes: list[str]):
                             db.execute(
                                 text("""
                                     INSERT INTO plate_detections (case_id, media_hash, plate_text, confidence, bbox, created_at)
-                                    VALUES (:cid, :hash, :text, :conf, :bbox::jsonb, now())
+                                    VALUES (:cid, :hash, :text, :conf, CAST(:bbox AS jsonb), now())
                                     ON CONFLICT DO NOTHING
                                 """),
                                 {
@@ -383,7 +383,7 @@ def _run_asr_job(job_id: str, case_id: str, audio_hashes: list[str]):
                         db.execute(
                             text("""
                                 INSERT INTO transcriptions (case_id, media_hash, text, segments, language, created_at)
-                                VALUES (:cid, :hash, :text, :segments::jsonb, :lang, now())
+                                VALUES (:cid, :hash, :text, CAST(:segments AS jsonb), :lang, now())
                                 ON CONFLICT (case_id, media_hash) DO UPDATE SET text = EXCLUDED.text, segments = EXCLUDED.segments
                             """),
                             {
