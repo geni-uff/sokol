@@ -1,0 +1,142 @@
+services:
+  # ---------------------------------------------------------------------------
+  # Postgres 16 + pgvector + postgis
+  # ---------------------------------------------------------------------------
+  sokol-postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    container_name: sokol-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sokol}
+      POSTGRES_USER: ${POSTGRES_USER:-sokol}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    ports:
+      - "${SOKOL_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - sokol-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sokol} -d ${POSTGRES_DB:-sokol}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - sokol-net
+
+  # ---------------------------------------------------------------------------
+  # API - FastAPI gateway
+  # ---------------------------------------------------------------------------
+  sokol-api:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+    container_name: sokol-api
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - ../.env
+    environment:
+      SOKOL_API_HOST: "0.0.0.0"
+      SOKOL_API_PORT: "8000"
+      DATABASE_URL: ${DATABASE_URL:-postgresql://sokol:change_me@localhost:5433/sokol}
+      DB_HOST: localhost
+      DB_PORT: 5433
+      POSTGRES_USER: ${POSTGRES_USER:-sokol}
+    depends_on:
+      sokol-postgres:
+        condition: service_healthy
+    volumes:
+      - ../synth/output:/data/ufdr-extract/synth:ro
+      - ../:/data/project:ro
+      - ../data/media-cache:/data/media-cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Embedding service — OpenAI-compatible
+  # ---------------------------------------------------------------------------
+  sokol-embed:
+    build:
+      context: ../services/embed
+      dockerfile: Dockerfile
+    container_name: sokol-embed
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      SOKOL_DEFAULT_EMBED_MODEL: ${SOKOL_DEFAULT_EMBED_MODEL:-Qwen/Qwen3-Embedding-0.6B}
+      SOKOL_ACTIVE_EMBED_MODEL: ${SOKOL_ACTIVE_EMBED_MODEL:-Qwen/Qwen3-Embedding-0.6B}
+      SOKOL_EMBED_DIM: ${SOKOL_EMBED_DIM:-1024}
+      SOKOL_GPU_AUX: ${SOKOL_GPU_AUX:-auto}
+    ports:
+      - "${SOKOL_EMBED_PORT:-8001}:8001"
+    volumes:
+      - sokol-models:/data/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - sokol-net
+
+  # ---------------------------------------------------------------------------
+  # Vision service — YOLO object detection
+  # ---------------------------------------------------------------------------
+  sokol-vision:
+    build:
+      context: ../services/vision
+      dockerfile: Dockerfile
+    container_name: sokol-vision
+    restart: unless-stopped
+    environment:
+      SOKOL_MODEL_DIR: /data/models/vision
+      SOKOL_VISION_CONF: ${SOKOL_VISION_CONF:-0.25}
+    ports:
+      - "${SOKOL_VISION_PORT:-8007}:8007"
+    volumes:
+      - sokol-vision-models:/data/models/vision
+      - ../data/media-cache:/data/media-cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8007/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - sokol-net
+
+  # ---------------------------------------------------------------------------
+  # Frontend — React SPA
+  # ---------------------------------------------------------------------------
+  sokol-web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+    container_name: sokol-web
+    restart: unless-stopped
+    ports:
+      - "${SOKOL_WEB_PORT:-3000}:80"
+    depends_on:
+      sokol-api:
+        condition: service_healthy
+    networks:
+      - sokol-net
+
+volumes:
+  sokol-pgdata:
+    driver: local
+  sokol-models:
+    driver: local
+  sokol-vision-models:
+    driver: local
+
+networks:
+  sokol-net:
+    driver: bridge
