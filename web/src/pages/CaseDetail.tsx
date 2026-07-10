@@ -19,11 +19,17 @@ import {
   apiDetectFaces,
   apiSearchFaces,
   apiLabelFace,
+  apiLaunchPipeline,
+  apiListPlates,
+  apiLabelPlate,
+  apiListTranscriptions,
   type Event,
   type SearchResult,
   type CaseStats,
   type FaceEmbedding,
   type FaceSearchResult,
+  type PlateDetection,
+  type Transcription,
 } from '@/lib/api'
 import { useState } from 'react'
 import {
@@ -60,6 +66,7 @@ import {
   User,
   Car,
   Smartphone,
+  Mic,
   type LucideIcon,
 } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
@@ -82,6 +89,8 @@ const NAV_ITEMS = [
   { icon: AlertCircle, label: 'Pendências', id: 'pendencias' },
   { icon: Image, label: 'Mídia', id: 'media' },
   { icon: User, label: 'Rostos', id: 'faces' },
+  { icon: Car, label: 'Placas', id: 'plates' },
+  { icon: Mic, label: 'Voz', id: 'transcriptions' },
   { icon: GitBranch, label: 'Grafo', id: 'graph' },
   { icon: Play, label: 'Playbooks', id: 'playbooks' },
   { icon: FileText, label: 'Relatórios', id: 'reports' },
@@ -240,6 +249,8 @@ export default function CaseDetail() {
       {activeTab === 'pendencias' && <PendenciasTab caseId={caseId!} />}
       {activeTab === 'media' && <MediaTab caseId={caseId!} />}
       {activeTab === 'faces' && <FacesTab caseId={caseId!} />}
+      {activeTab === 'plates' && <PlatesTab caseId={caseId!} />}
+      {activeTab === 'transcriptions' && <TranscriptionsTab caseId={caseId!} />}
       {activeTab === 'graph' && <GraphTab caseId={caseId!} />}
       {activeTab === 'playbooks' && <PlaybooksTab caseId={caseId!} />}
       {activeTab === 'reports' && <ReportsTab />}
@@ -769,6 +780,7 @@ function PendenciasTab({ caseId }: { caseId: string }) {
 }
 
 function MediaTab({ caseId }: { caseId: string }) {
+  const queryClient = useQueryClient()
   const [selectedClass, setSelectedClass] = useState('')
   const [minConfidence, setMinConfidence] = useState(0.5)
   const [showOnlyDetections, setShowOnlyDetections] = useState(false)
@@ -792,6 +804,15 @@ function MediaTab({ caseId }: { caseId: string }) {
     enabled: showOnlyDetections,
   })
 
+  const pipelineMutation = useMutation({
+    mutationFn: () => apiLaunchPipeline(caseId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['media', caseId] })
+      queryClient.invalidateQueries({ queryKey: ['plates', caseId] })
+      queryClient.invalidateQueries({ queryKey: ['transcriptions', caseId] })
+    },
+  })
+
   const displayMedia = showOnlyDetections ? mediaWithDetections : media
   const isLoading = showOnlyDetections ? detectionsLoading : mediaLoading
 
@@ -808,7 +829,26 @@ function MediaTab({ caseId }: { caseId: string }) {
 
   return (
     <>
-      <PageHeader icon={Image} title="Mídia" description={`${media.length} arquivo(s)`} />
+      <PageHeader
+        icon={Image}
+        title="Mídia"
+        description={`${media.length} arquivo(s)`}
+        actions={
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => pipelineMutation.mutate()}
+            disabled={pipelineMutation.isPending}
+          >
+            {pipelineMutation.isPending ? (
+              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+            ) : (
+              <Scan className="mr-2 h-3 w-3" />
+            )}
+            Pipeline
+          </Button>
+        }
+      />
 
       <Card className="mb-6">
         <CardContent>
@@ -1387,6 +1427,119 @@ function OpsTab() {
             </div>
           </CardContent>
         </Card>
+      )}
+    </>
+  )
+}
+
+function PlatesTab({ caseId }: { caseId: string }) {
+  const queryClient = useQueryClient()
+  const [labelInput, setLabelInput] = useState('')
+
+  const { data: plates = [], isLoading } = useQuery({
+    queryKey: ['plates', caseId],
+    queryFn: () => apiListPlates(caseId),
+  })
+
+  const labelMutation = useMutation({
+    mutationFn: ({ id, label }: { id: string; label: string }) => apiLabelPlate(id, label),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['plates', caseId] })
+      setLabelInput('')
+    },
+  })
+
+  return (
+    <>
+      <PageHeader icon={Car} title="Placas" description={`${plates.length} placa(s) detectada(s)`} />
+      {isLoading ? (
+        <Loader2 className="h-5 w-5 animate-spin text-muted" />
+      ) : plates.length === 0 ? (
+        <EmptyState icon={Car} title="Nenhuma placa detectada" description="Execute o pipeline de detecção para analisar imagens" />
+      ) : (
+        <div className="space-y-3">
+          {plates.map((plate) => (
+            <Card key={plate.id}>
+              <CardContent className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded bg-surface flex items-center justify-center">
+                    <Car className="h-5 w-5 text-dim" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-mono font-medium text-foreground">{plate.plate_text}</span>
+                    {plate.label && <span className="ml-2 text-xs text-dim">({plate.label})</span>}
+                    <p className="text-[10px] text-dim">
+                      Confiança: {plate.confidence ? `${(plate.confidence * 100).toFixed(0)}%` : 'N/A'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={labelInput}
+                    onChange={(e) => setLabelInput(e.target.value)}
+                    placeholder="Label"
+                    className="w-32 rounded-md border border-border bg-surface px-2 py-1 text-xs"
+                    onKeyDown={(e) => e.key === 'Enter' && labelInput.trim() && labelMutation.mutate({ id: plate.id, label: labelInput.trim() })}
+                  />
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => labelInput.trim() && labelMutation.mutate({ id: plate.id, label: labelInput.trim() })}
+                    disabled={!labelInput.trim()}
+                  >
+                    Rotular
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+function TranscriptionsTab({ caseId }: { caseId: string }) {
+  const [search, setSearch] = useState('')
+
+  const { data: transcriptions = [], isLoading } = useQuery({
+    queryKey: ['transcriptions', caseId, search],
+    queryFn: () => apiListTranscriptions(caseId, search || undefined),
+  })
+
+  return (
+    <>
+      <PageHeader icon={Mic} title="Transcrições de Voz" description={`${transcriptions.length} transcrição(ões)`} />
+      <div className="mb-4">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar no texto transcrito..."
+          className="w-full rounded-lg border border-border bg-surface px-4 py-3 text-sm"
+        />
+      </div>
+      {isLoading ? (
+        <Loader2 className="h-5 w-5 animate-spin text-muted" />
+      ) : transcriptions.length === 0 ? (
+        <EmptyState icon={Mic} title="Nenhuma transcrição" description="Execute o pipeline de detecção para transcrever áudios" />
+      ) : (
+        <div className="space-y-3">
+          {transcriptions.map((t) => (
+            <Card key={t.id}>
+              <CardContent className="py-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Mic className="h-4 w-4 text-dim" />
+                  <span className="text-[10px] text-dim">
+                    {t.language || 'unknown'} | {new Date(t.created_at).toLocaleString('pt-BR')}
+                  </span>
+                </div>
+                <p className="text-sm text-foreground leading-relaxed">{t.text}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
     </>
   )

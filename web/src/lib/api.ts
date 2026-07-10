@@ -496,3 +496,71 @@ export async function apiLabelFace(faceId: string, label: string) {
   if (!res.ok) throw new Error('Label face failed')
   return res.json()
 }
+
+// ── Pipeline ─────────────────────────────────────────────────────────────
+export interface PipelineJob {
+  job_id: string
+  kind: string
+  status: string
+  progress: number
+  message: string
+}
+
+export async function apiLaunchPipeline(caseId: string): Promise<{ jobs_launched: number; job_ids: Record<string, string> }> {
+  const res = await fetch(`${API_BASE}/detect/pipeline/${caseId}`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('Launch pipeline failed')
+  return res.json()
+}
+
+export async function apiPipelineStatus(caseId: string): Promise<PipelineJob[]> {
+  const res = await fetch(`${API_BASE}/detect/status/${caseId}`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+
+// ── Plates ───────────────────────────────────────────────────────────────
+export interface PlateDetection {
+  id: string
+  case_id: string
+  media_hash: string
+  plate_text: string
+  confidence: number | null
+  label: string | null
+  created_at: string
+}
+
+export async function apiListPlates(caseId: string): Promise<PlateDetection[]> {
+  const res = await fetch(`${API_BASE}/plates/${caseId}`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function apiLabelPlate(plateId: string, label: string) {
+  const res = await fetch(`${API_BASE}/plates/${plateId}/label?label=${encodeURIComponent(label)}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('Label plate failed')
+  return res.json()
+}
+
+// ── Transcriptions ───────────────────────────────────────────────────────
+export interface Transcription {
+  id: string
+  case_id: string
+  media_hash: string
+  text: string
+  language: string | null
+  created_at: string
+}
+
+export async function apiListTranscriptions(caseId: string, search?: string): Promise<Transcription[]> {
+  const params = new URLSearchParams()
+  if (search) params.set('search', search)
+  const res = await fetch(`${API_BASE}/transcriptions/${caseId}?${params}`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}

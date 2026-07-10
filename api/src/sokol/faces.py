@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -13,6 +14,8 @@ from .db import get_session_factory
 from .services.face import detect_faces_bytes
 
 router = APIRouter(prefix="/faces", tags=["faces"])
+
+MEDIA_CACHE = Path("/data/media-cache")
 
 
 # ── Models ─────────────────────────────────────────────────────────────────
@@ -38,6 +41,45 @@ class FaceSearchResult(BaseModel):
     label: Optional[str] = None
 
 
+# ── Helpers ─────────────────────────────────────────────────────────────────
+def _find_media_file(media_hash: str) -> Optional[Path]:
+    """Find a media file on disk by hash, searching media-cache."""
+    if not MEDIA_CACHE.exists():
+        return None
+    direct = MEDIA_CACHE / media_hash
+    if direct.is_file():
+        return direct
+    for ext in [".jpg", ".jpeg", ".png", ".webp"]:
+        candidate = MEDIA_CACHE / f"{media_hash}{ext}"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _get_case_image_hashes(db, case_id: str) -> list[str]:
+    """Get all image hashes linked to a case via messages and artifacts."""
+    rows = (
+        db.execute(
+            text("""
+            SELECT DISTINCT m.hash
+            FROM media m
+            LEFT JOIN (
+                SELECT media_hash FROM messages WHERE case_id = :case_id AND media_hash IS NOT NULL
+            ) msg ON msg.media_hash = m.hash
+            LEFT JOIN (
+                SELECT media_hash FROM artifacts WHERE case_id = :case_id AND media_hash IS NOT NULL
+            ) art ON art.media_hash = m.hash
+            WHERE (msg.media_hash IS NOT NULL OR art.media_hash IS NOT NULL)
+              AND m.mime_type LIKE 'image/%'
+        """),
+            {"case_id": case_id},
+        )
+        .mappings()
+        .all()
+    )
+    return [r["hash"] for r in rows]
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────
 @router.post("/detect/{case_id}")
 async def detect_faces_in_case(
@@ -53,30 +95,7 @@ async def detect_faces_in_case(
         if not case:
             raise HTTPException(status_code=404, detail="Case not found")
 
-        media = db.execute(
-            text("SELECT hash FROM media WHERE case_id = :cid AND hash = :hash"),
-            {"cid": case_id, "hash": media_hash},
-        ).fetchone()
-        if not media:
-            raise HTTPException(status_code=404, detail="Media not found")
-
-        import os
-        from pathlib import Path
-
-        media_dir = Path("/data/media-cache") / case_id
-        media_path = None
-        for ext in [".jpg", ".jpeg", ".png", ".webp"]:
-            candidate = media_dir / f"{media_hash}{ext}"
-            if candidate.exists():
-                media_path = candidate
-                break
-
-        if not media_path:
-            for p in media_dir.rglob(f"{media_hash}.*"):
-                if p.is_file():
-                    media_path = p
-                    break
-
+        media_path = _find_media_file(media_hash)
         if not media_path:
             raise HTTPException(status_code=404, detail="Media file not found on disk")
 
@@ -119,15 +138,85 @@ async def detect_faces_in_case(
         return {
             "faces_detected": result.get("face_count", 0),
             "faces_stored": stored,
-            "faces": [
-                {
-                    "bbox": f["bbox"],
-                    "confidence": f.get("confidence"),
-                    "age": f.get("age"),
-                    "gender": f.get("gender"),
-                }
-                for f in result.get("faces", [])
-            ],
+            "media_hash": media_hash,
+        }
+
+
+@router.post("/detect_all/{case_id}")
+async def detect_faces_all(case_id: str):
+    """Detect faces in ALL images of a case (background-friendly batch)."""
+    factory = get_session_factory()
+    with factory() as db:
+        case = db.execute(
+            text("SELECT id FROM cases WHERE id = :id"), {"id": case_id}
+        ).fetchone()
+        if not case:
+            raise HTTPException(status_code=404, detail="Case not found")
+
+        hashes = _get_case_image_hashes(db, case_id)
+
+        total_detected = 0
+        total_stored = 0
+        errors = 0
+        processed = 0
+
+        for media_hash in hashes:
+            processed += 1
+            media_path = _find_media_file(media_hash)
+            if not media_path:
+                errors += 1
+                continue
+
+            try:
+                result = await detect_faces_bytes(
+                    media_path.read_bytes(),
+                    image_id=media_hash,
+                )
+                faces = result.get("faces", [])
+                total_detected += len(faces)
+
+                for face in faces:
+                    existing = db.execute(
+                        text("""
+                            SELECT id FROM face_embeddings
+                            WHERE case_id = :cid AND media_hash = :hash
+                            AND bbox = :bbox::jsonb
+                        """),
+                        {
+                            "cid": case_id,
+                            "hash": media_hash,
+                            "bbox": json.dumps(face["bbox"]),
+                        },
+                    ).fetchone()
+
+                    if not existing:
+                        db.execute(
+                            text("""
+                                INSERT INTO face_embeddings (case_id, media_hash, bbox, embedding, confidence, age, gender)
+                                VALUES (:cid, :hash, :bbox::jsonb, :embedding::vector, :conf, :age, :gender)
+                            """),
+                            {
+                                "cid": case_id,
+                                "hash": media_hash,
+                                "bbox": json.dumps(face["bbox"]),
+                                "embedding": str(face["embedding"]),
+                                "conf": face.get("confidence"),
+                                "age": face.get("age"),
+                                "gender": face.get("gender"),
+                            },
+                        )
+                        total_stored += 1
+            except Exception:
+                errors += 1
+                continue
+
+        db.commit()
+
+        return {
+            "images_processed": processed,
+            "faces_detected": total_detected,
+            "faces_stored": total_stored,
+            "errors": errors,
         }
 
 

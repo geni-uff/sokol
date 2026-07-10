@@ -91,9 +91,13 @@ def create_playbook(body: PlaybookCreate, user_id: str = "system"):
         )
         db.commit()
 
-        row = db.execute(
-            text("SELECT * FROM playbooks WHERE id = :id"), {"id": playbook_id}
-        ).fetchone()
+        row = (
+            db.execute(
+                text("SELECT * FROM playbooks WHERE id = :id"), {"id": playbook_id}
+            )
+            .mappings()
+            .fetchone()
+        )
         return Playbook(
             id=str(row["id"]),
             name=row["name"],
@@ -152,9 +156,13 @@ def get_playbook(playbook_id: str):
     """Get playbook details."""
     factory = get_session_factory()
     with factory() as db:
-        row = db.execute(
-            text("SELECT * FROM playbooks WHERE id = :id"), {"id": playbook_id}
-        ).fetchone()
+        row = (
+            db.execute(
+                text("SELECT * FROM playbooks WHERE id = :id"), {"id": playbook_id}
+            )
+            .mappings()
+            .fetchone()
+        )
         if not row:
             raise HTTPException(status_code=404, detail="Playbook not found")
 
@@ -171,19 +179,34 @@ def get_playbook(playbook_id: str):
 
 
 @router.post("/{playbook_id}/execute", response_model=PlaybookExecution)
-def execute_playbook(playbook_id: str, case_id: str, user_id: str = "system"):
+def execute_playbook(playbook_id: str, case_id: str):
     """Start playbook execution for a case — runs all steps synchronously."""
     factory = get_session_factory()
     with factory() as db:
-        playbook = db.execute(
-            text("SELECT * FROM playbooks WHERE id = :id"), {"id": playbook_id}
-        ).fetchone()
+        admin_user = (
+            db.execute(text("SELECT id FROM users LIMIT 1")).mappings().fetchone()
+        )
+        user_id = (
+            str(admin_user["id"])
+            if admin_user
+            else "00000000-0000-0000-0000-000000000000"
+        )
+
+        playbook = (
+            db.execute(
+                text("SELECT * FROM playbooks WHERE id = :id"), {"id": playbook_id}
+            )
+            .mappings()
+            .fetchone()
+        )
         if not playbook:
             raise HTTPException(status_code=404, detail="Playbook not found")
 
-        case = db.execute(
-            text("SELECT id FROM cases WHERE id = :id"), {"id": case_id}
-        ).fetchone()
+        case = (
+            db.execute(text("SELECT id FROM cases WHERE id = :id"), {"id": case_id})
+            .mappings()
+            .fetchone()
+        )
         if not case:
             raise HTTPException(status_code=404, detail="Case not found")
 
@@ -202,7 +225,8 @@ def execute_playbook(playbook_id: str, case_id: str, user_id: str = "system"):
         )
         db.commit()
 
-        steps = json.loads(playbook["steps"])
+        steps_raw = playbook["steps"]
+        steps = steps_raw if isinstance(steps_raw, list) else json.loads(steps_raw)
         results = {}
 
         for step in steps:
@@ -227,11 +251,12 @@ def execute_playbook(playbook_id: str, case_id: str, user_id: str = "system"):
                 db.execute(
                     text("""
                         INSERT INTO playbook_results (id, execution_id, step_id, status, output)
-                        VALUES (gen_random_uuid(), :eid, :sid, 'ok', :output::jsonb)
+                        VALUES (gen_random_uuid(), :eid, :sid, 'ok', CAST(:output AS jsonb))
                     """),
                     {"eid": execution_id, "sid": step_id, "output": json.dumps(output)},
                 )
             except Exception as e:
+                db.rollback()
                 results[step_id] = {"status": "error", "error": str(e)}
                 db.execute(
                     text("""
@@ -245,7 +270,7 @@ def execute_playbook(playbook_id: str, case_id: str, user_id: str = "system"):
         db.execute(
             text("""
                 UPDATE playbook_executions
-                SET status = 'completed', current_step = NULL, results = :results::jsonb,
+                SET status = 'completed', current_step = NULL, results = CAST(:results AS jsonb),
                     completed_at = now()
                 WHERE id = :eid
             """),
@@ -253,10 +278,14 @@ def execute_playbook(playbook_id: str, case_id: str, user_id: str = "system"):
         )
         db.commit()
 
-        row = db.execute(
-            text("SELECT * FROM playbook_executions WHERE id = :id"),
-            {"id": execution_id},
-        ).fetchone()
+        row = (
+            db.execute(
+                text("SELECT * FROM playbook_executions WHERE id = :id"),
+                {"id": execution_id},
+            )
+            .mappings()
+            .fetchone()
+        )
 
         return PlaybookExecution(
             id=str(row["id"]),
@@ -271,30 +300,35 @@ def execute_playbook(playbook_id: str, case_id: str, user_id: str = "system"):
         )
 
 
+def _safe_dict(row) -> dict:
+    d = dict(row._mapping)
+    return {k: str(v) if hasattr(v, "isoformat") else v for k, v in d.items()}
+
+
 def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
     """Execute a single playbook step and return its output."""
     if action == "extract_contacts":
         rows = db.execute(
             text("""
-                SELECT DISTINCT entity_name, entity_type, COUNT(*) as count
+                SELECT DISTINCT kind, value, display_name, COUNT(*) as count
                 FROM entities WHERE case_id = :cid
-                GROUP BY entity_name, entity_type
+                GROUP BY kind, value, display_name
                 ORDER BY count DESC LIMIT 50
             """),
             {"cid": case_id},
         ).fetchall()
-        return {"contacts": [dict(r._mapping) for r in rows], "count": len(rows)}
+        return {"contacts": [_safe_dict(r) for r in rows], "count": len(rows)}
 
     elif action == "map_communications":
         rows = db.execute(
             text("""
-                SELECT source, dest, kind, COUNT(*) as count, MIN(ts) as first, MAX(ts) as last
+                SELECT actor, counterpart, kind, COUNT(*) as count, MIN(ts) as first, MAX(ts) as last
                 FROM events WHERE case_id = :cid AND kind IN ('message', 'call')
-                GROUP BY source, dest, kind ORDER BY count DESC LIMIT 50
+                GROUP BY actor, counterpart, kind ORDER BY count DESC LIMIT 50
             """),
             {"cid": case_id},
         ).fetchall()
-        return {"communications": [dict(r._mapping) for r in rows], "count": len(rows)}
+        return {"communications": [_safe_dict(r) for r in rows], "count": len(rows)}
 
     elif action == "analyze_patterns":
         rows = db.execute(
@@ -368,7 +402,7 @@ def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
         rows = db.execute(
             text("""
                 SELECT id, kind, ts, summary
-                FROM events WHERE case_id = :cid AND (summary ILIKE :q OR source ILIKE :q OR dest ILIKE :q)
+                FROM events WHERE case_id = :cid AND (summary ILIKE :q OR actor ILIKE :q OR counterpart ILIKE :q)
                 LIMIT 50
             """),
             {"cid": case_id, "q": f"%{entity}%"},

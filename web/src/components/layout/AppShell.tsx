@@ -67,14 +67,14 @@ export function AppShell({
         {backButton && <div className="shrink-0 px-5 pt-5">{backButton}</div>}
 
         {navItems && navItems.length > 0 && (
-          <nav className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-5 py-5">
+          <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-5 py-5">
             {navItems.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 type="button"
                 onClick={() => onNavChange?.(id)}
                 className={cn(
-                  'flex items-center gap-3 rounded-lg px-3.5 py-3 text-left text-sm font-medium transition-colors duration-150',
+                  'flex items-center gap-3 rounded-lg px-3.5 py-1.5 text-left text-sm font-medium transition-colors duration-150',
                   activeNavId === id
                     ? 'bg-white/5 text-foreground'
                     : 'text-muted hover:bg-white/5 hover:text-foreground',
