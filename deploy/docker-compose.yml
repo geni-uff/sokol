@@ -39,9 +39,9 @@ services:
     environment:
       SOKOL_API_HOST: "0.0.0.0"
       SOKOL_API_PORT: "8000"
-      DATABASE_URL: ${DATABASE_URL:-postgresql://sokol:change_me@localhost:5433/sokol}
+      DATABASE_URL: postgresql://sokol:change_me@localhost:5433/sokol
       DB_HOST: localhost
-      DB_PORT: 5433
+      DB_PORT: "5433"
       POSTGRES_USER: ${POSTGRES_USER:-sokol}
     depends_on:
       sokol-postgres:
