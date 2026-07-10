@@ -7,7 +7,6 @@ Create Date: 2026-07-10
 
 from alembic import op
 import sqlalchemy as sa
-from pgvector.sqlalchemy import Vector
 
 revision = "011"
 down_revision = "010"
@@ -18,46 +17,29 @@ depends_on = None
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
-    op.create_table(
-        "face_embeddings",
-        sa.Column(
-            "id",
-            sa.dialects.postgresql.UUID(),
-            server_default=sa.text("gen_random_uuid()"),
-            nullable=False,
-        ),
-        sa.Column(
-            "case_id",
-            sa.dialects.postgresql.UUID(),
-            sa.ForeignKey("cases.id"),
-            nullable=False,
-        ),
-        sa.Column("media_hash", sa.Text(), nullable=False),
-        sa.Column("bbox", sa.dialects.postgresql.JSONB(), nullable=False),
-        sa.Column("embedding", Vector(512), nullable=False),
-        sa.Column("confidence", sa.Float(), nullable=True),
-        sa.Column("label", sa.Text(), nullable=True),
-        sa.Column("age", sa.Integer(), nullable=True),
-        sa.Column("gender", sa.String(1), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.PrimaryKeyConstraint("id"),
-    )
+    op.execute("""
+        CREATE TABLE face_embeddings (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            case_id UUID NOT NULL REFERENCES cases(id),
+            media_hash TEXT NOT NULL,
+            bbox JSONB NOT NULL,
+            embedding vector(512) NOT NULL,
+            confidence FLOAT,
+            label TEXT,
+            age INTEGER,
+            gender VARCHAR(1),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
 
     op.create_index("ix_face_embeddings_case_id", "face_embeddings", ["case_id"])
     op.create_index("ix_face_embeddings_media_hash", "face_embeddings", ["media_hash"])
-    op.create_index(
-        "ix_face_embeddings_embedding_hnsw",
-        "face_embeddings",
-        ["embedding"],
-        postgresql_using="hnsw",
-        postgresql_with={"m": "16", "ef_construction": "200"},
-        postgresql_ops={"embedding": "vector_cosine_ops"},
-    )
+    op.execute("""
+        CREATE INDEX ix_face_embeddings_embedding_hnsw
+        ON face_embeddings
+        USING hnsw (embedding vector_cosine_ops)
+        WITH (m = 16, ef_construction = 200)
+    """)
 
 
 def downgrade() -> None:

@@ -5,7 +5,6 @@ from __future__ import annotations
 from .ocr import OCRService
 from .asr import ASRService
 from .vision import VisionService
-from .face import FaceService
 from .plate import PlateService
 
-__all__ = ["OCRService", "ASRService", "VisionService", "FaceService", "PlateService"]
+__all__ = ["OCRService", "ASRService", "VisionService", "PlateService"]

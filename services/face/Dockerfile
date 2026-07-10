@@ -10,12 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir uv
-
 COPY pyproject.toml .
-RUN uv venv && uv pip install -e . 2>/dev/null || uv pip install \
+RUN pip install --no-cache-dir \
     fastapi "uvicorn[standard]" insightface onnxruntime \
-    opencv-python-headless numpy pillow httpx
+    opencv-python-headless numpy pillow httpx python-multipart
 
 COPY src/ ./src/
 
