@@ -1,67 +1,56 @@
-"""SOKOL — Face detection service."""
+"""SOKOL API — Face recognition client (InsightFace service)."""
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 import httpx
 
-
-@dataclass
-class FaceDetection:
-    bbox: tuple[int, int, int, int]  # x1, y1, x2, y2
-    confidence: float
-    embedding: Optional[list[float]] = None
-    label: Optional[str] = None
+FACE_URL = os.getenv("SOKOL_FACE_URL", "http://localhost:8011")
 
 
-@dataclass
-class FaceResult:
-    detections: list[FaceDetection]
-    image_width: int = 0
-    image_height: int = 0
+async def detect_faces(file_path: str, image_id: Optional[str] = None) -> dict:
+    """Detect faces and extract embeddings from an image file."""
+    path = Path(file_path)
+    if not path.exists():
+        return {"faces": [], "face_count": 0}
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        with open(path, "rb") as f:
+            files = {"file": (path.name, f, "image/jpeg")}
+            data = {}
+            if image_id:
+                data["image_id"] = image_id
+            resp = await client.post(f"{FACE_URL}/detect", files=files, data=data)
+            resp.raise_for_status()
+            return resp.json()
 
 
-class FaceService:
-    """Face detection and recognition service."""
+async def detect_faces_bytes(content: bytes, filename: str = "image.jpg") -> dict:
+    """Detect faces from image bytes."""
+    async with httpx.AsyncClient(timeout=60) as client:
+        files = {"file": (filename, content, "image/jpeg")}
+        resp = await client.post(f"{FACE_URL}/detect", files=files)
+        resp.raise_for_status()
+        return resp.json()
 
-    def __init__(self, api_url: Optional[str] = None):
-        self.api_url = api_url or os.getenv(
-            "SOKOL_FACE_API_URL", "http://localhost:11434"
+
+async def compute_similarity(embedding1: list[float], embedding2: list[float]) -> float:
+    """Compute cosine similarity between two embeddings."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{FACE_URL}/similarity",
+            params={"embedding1": str(embedding1), "embedding2": str(embedding2)},
         )
+        resp.raise_for_status()
+        return resp.json()["similarity"]
 
-    async def detect_faces(self, image_path: str) -> FaceResult:
-        """Detect faces in image."""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{self.api_url}/api/face/detect",
-                json={"image_path": image_path},
-            )
-            response.raise_for_status()
-            data = response.json()
 
-            detections = [
-                FaceDetection(
-                    bbox=tuple(d["bbox"]),
-                    confidence=d["confidence"],
-                    embedding=d.get("embedding"),
-                    label=d.get("label"),
-                )
-                for d in data.get("detections", [])
-            ]
-
-            return FaceResult(
-                detections=detections,
-                image_width=data.get("image_width", 0),
-                image_height=data.get("image_height", 0),
-            )
-
-    async def health(self) -> str:
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(f"{self.api_url}/health")
-                return "ok" if response.status_code == 200 else "error"
-        except Exception:
-            return "down"
+async def health_check() -> dict:
+    """Check face service health."""
+    async with httpx.AsyncClient(timeout=5) as client:
+        resp = await client.get(f"{FACE_URL}/health")
+        resp.raise_for_status()
+        return resp.json()

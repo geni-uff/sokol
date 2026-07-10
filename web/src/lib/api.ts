@@ -431,3 +431,68 @@ export function logout() {
 export function isLoggedIn(): boolean {
   return !!getToken()
 }
+
+// ── Faces ─────────────────────────────────────────────────────────────────
+export interface FaceEmbedding {
+  id: string
+  case_id: string
+  media_hash: string
+  bbox: number[]
+  confidence: number | null
+  label: string | null
+  age: number | null
+  gender: string | null
+  created_at: string
+}
+
+export interface FaceSearchResult {
+  face_id: string
+  case_id: string
+  case_name: string
+  media_hash: string
+  bbox: number[]
+  similarity: number
+  label: string | null
+}
+
+export async function apiDetectFaces(caseId: string, mediaHash: string) {
+  const res = await fetch(
+    `${API_BASE}/faces/detect/${caseId}?media_hash=${mediaHash}`,
+    { method: 'POST', headers: authHeaders() }
+  )
+  if (!res.ok) throw new Error('Detect faces failed')
+  return res.json()
+}
+
+export async function apiListFaces(caseId: string, label?: string): Promise<FaceEmbedding[]> {
+  const params = new URLSearchParams()
+  if (label) params.set('label', label)
+  const res = await fetch(`${API_BASE}/faces/${caseId}?${params}`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function apiSearchFaces(
+  caseId: string,
+  faceId: string,
+  threshold = 0.4,
+  limit = 20
+): Promise<FaceSearchResult[]> {
+  const params = new URLSearchParams({ face_id: faceId, threshold: String(threshold), limit: String(limit) })
+  const res = await fetch(`${API_BASE}/faces/${caseId}/search`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: params,
+  })
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function apiLabelFace(faceId: string, label: string) {
+  const res = await fetch(`${API_BASE}/faces/${faceId}/label?label=${encodeURIComponent(label)}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('Label face failed')
+  return res.json()
+}

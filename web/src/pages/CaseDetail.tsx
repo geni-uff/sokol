@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   apiGetCase,
   apiTimeline,
@@ -13,10 +13,17 @@ import {
   apiListPendencias,
   apiGetGraph,
   apiListPlaybooks,
+  apiExecutePlaybook,
   apiListMedia,
+  apiListFaces,
+  apiDetectFaces,
+  apiSearchFaces,
+  apiLabelFace,
   type Event,
   type SearchResult,
   type CaseStats,
+  type FaceEmbedding,
+  type FaceSearchResult,
 } from '@/lib/api'
 import { useState } from 'react'
 import {
@@ -74,6 +81,7 @@ const NAV_ITEMS = [
   { icon: Eye, label: 'Watchlists', id: 'watchlists' },
   { icon: AlertCircle, label: 'Pendências', id: 'pendencias' },
   { icon: Image, label: 'Mídia', id: 'media' },
+  { icon: User, label: 'Rostos', id: 'faces' },
   { icon: GitBranch, label: 'Grafo', id: 'graph' },
   { icon: Play, label: 'Playbooks', id: 'playbooks' },
   { icon: FileText, label: 'Relatórios', id: 'reports' },
@@ -231,8 +239,9 @@ export default function CaseDetail() {
       {activeTab === 'watchlists' && <WatchlistsTab caseId={caseId!} />}
       {activeTab === 'pendencias' && <PendenciasTab caseId={caseId!} />}
       {activeTab === 'media' && <MediaTab caseId={caseId!} />}
+      {activeTab === 'faces' && <FacesTab caseId={caseId!} />}
       {activeTab === 'graph' && <GraphTab caseId={caseId!} />}
-      {activeTab === 'playbooks' && <PlaybooksTab />}
+      {activeTab === 'playbooks' && <PlaybooksTab caseId={caseId!} />}
       {activeTab === 'reports' && <ReportsTab />}
       {activeTab === 'ops' && <OpsTab />}
     </AppShell>
@@ -998,10 +1007,229 @@ function GraphTab({ caseId }: { caseId: string }) {
   )
 }
 
-function PlaybooksTab() {
+function FacesTab({ caseId }: { caseId: string }) {
+  const queryClient = useQueryClient()
+  const [selectedFace, setSelectedFace] = useState<FaceEmbedding | null>(null)
+  const [searchResults, setSearchResults] = useState<FaceSearchResult[]>([])
+  const [searching, setSearching] = useState(false)
+  const [labelInput, setLabelInput] = useState('')
+
+  const { data: faces = [], isLoading } = useQuery({
+    queryKey: ['faces', caseId],
+    queryFn: () => apiListFaces(caseId),
+  })
+
+  const detectMutation = useMutation({
+    mutationFn: (mediaHash: string) => apiDetectFaces(caseId, mediaHash),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['faces', caseId] })
+    },
+  })
+
+  const searchMutation = useMutation({
+    mutationFn: (faceId: string) => apiSearchFaces(caseId, faceId),
+    onMutate: () => {
+      setSearching(true)
+      setSearchResults([])
+    },
+    onSuccess: (data) => {
+      setSearchResults(data)
+      setSearching(false)
+    },
+    onError: () => {
+      setSearching(false)
+    },
+  })
+
+  const labelMutation = useMutation({
+    mutationFn: ({ faceId, label }: { faceId: string; label: string }) =>
+      apiLabelFace(faceId, label),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['faces', caseId] })
+      setLabelInput('')
+    },
+  })
+
+  const handleSearch = (face: FaceEmbedding) => {
+    setSelectedFace(face)
+    searchMutation.mutate(face.id)
+  }
+
+  const handleLabel = (faceId: string) => {
+    if (labelInput.trim()) {
+      labelMutation.mutate({ faceId, label: labelInput.trim() })
+    }
+  }
+
+  return (
+    <>
+      <PageHeader
+        icon={User}
+        title="Rostos"
+        description={`${faces.length} rosto(s) detectado(s)`}
+      />
+      {isLoading ? (
+        <Loader2 className="h-5 w-5 animate-spin text-muted" />
+      ) : faces.length === 0 ? (
+        <EmptyState icon={User} title="Nenhum rosto detectado" />
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+            {faces.map((face) => (
+              <Card
+                key={face.id}
+                className={`cursor-pointer transition-all hover:ring-2 hover:ring-accent ${
+                  selectedFace?.id === face.id ? 'ring-2 ring-accent' : ''
+                }`}
+                onClick={() => setSelectedFace(face)}
+              >
+                <CardContent className="p-3">
+                  <div className="aspect-square rounded-lg bg-surface overflow-hidden">
+                    <img
+                      src={`/api/media/file/${face.media_hash}`}
+                      alt={face.label || 'Rosto'}
+                      className="h-full w-full object-cover"
+                      onError={(e) => {
+                        ;(e.target as HTMLImageElement).style.display = 'none'
+                      }}
+                    />
+                  </div>
+                  <div className="mt-2 space-y-1">
+                    {face.label && (
+                      <p className="text-xs font-medium text-foreground truncate">{face.label}</p>
+                    )}
+                    <p className="text-[10px] text-dim">
+                      {face.confidence ? `${(face.confidence * 100).toFixed(0)}%` : ''}
+                      {face.age ? ` | ${face.age} anos` : ''}
+                      {face.gender ? ` | ${face.gender === 'M' ? 'M' : 'F'}` : ''}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {selectedFace && (
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-start gap-4">
+                  <div className="h-24 w-24 flex-shrink-0 rounded-lg bg-surface overflow-hidden">
+                    <img
+                      src={`/api/media/file/${selectedFace.media_hash}`}
+                      alt="Rosto selecionado"
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        {selectedFace.label || 'Sem label'}
+                      </p>
+                      <p className="text-xs text-dim">
+                        Confiança: {selectedFace.confidence ? `${(selectedFace.confidence * 100).toFixed(1)}%` : 'N/A'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={labelInput}
+                        onChange={(e) => setLabelInput(e.target.value)}
+                        placeholder="Label do rosto (ex: João)"
+                        className="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm"
+                        onKeyDown={(e) => e.key === 'Enter' && handleLabel(selectedFace.id)}
+                      />
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleLabel(selectedFace.id)}
+                        disabled={!labelInput.trim()}
+                      >
+                        Salvar
+                      </Button>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => handleSearch(selectedFace)}
+                      disabled={searching}
+                    >
+                      {searching ? (
+                        <>
+                          <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                          Buscando...
+                        </>
+                      ) : (
+                        'Buscar em outros casos'
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {searchResults.length > 0 && (
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="mb-3 text-sm font-medium text-foreground">
+                  Resultados da busca ({searchResults.length} correspondência(s))
+                </h3>
+                <div className="space-y-2">
+                  {searchResults.map((result) => (
+                    <div
+                      key={result.face_id}
+                      className="flex items-center gap-3 rounded-lg border border-border p-2"
+                    >
+                      <div className="h-12 w-12 flex-shrink-0 rounded bg-surface overflow-hidden">
+                        <img
+                          src={`/api/media/file/${result.media_hash}`}
+                          alt="Rosto encontrado"
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-foreground">
+                          {result.label || result.case_name}
+                        </p>
+                        <p className="text-[10px] text-dim">
+                          Similaridade: {(result.similarity * 100).toFixed(1)}% | Caso: {result.case_name}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+function PlaybooksTab({ caseId }: { caseId: string }) {
+  const queryClient = useQueryClient()
+  const [executingId, setExecutingId] = useState<string | null>(null)
+  const [lastResult, setLastResult] = useState<any>(null)
+
   const { data: playbooks = [], isLoading } = useQuery({
     queryKey: ['playbooks'],
     queryFn: () => apiListPlaybooks(),
+  })
+
+  const executeMutation = useMutation({
+    mutationFn: (playbookId: string) => apiExecutePlaybook(playbookId, caseId),
+    onMutate: (playbookId) => {
+      setExecutingId(playbookId)
+      setLastResult(null)
+    },
+    onSuccess: (data) => {
+      setLastResult(data)
+      setExecutingId(null)
+      queryClient.invalidateQueries({ queryKey: ['playbooks'] })
+    },
+    onError: () => {
+      setExecutingId(null)
+    },
   })
 
   return (
@@ -1015,15 +1243,54 @@ function PlaybooksTab() {
         <div className="space-y-3">
           {playbooks.map((p) => (
             <Card key={p.id}>
-              <CardContent className="flex items-center justify-between py-4">
-                <div>
-                  <span className="text-sm font-medium text-foreground">{p.name}</span>
-                  <span className="ml-2 text-xs text-dim">({p.category})</span>
-                  <p className="mt-1 text-xs text-dim">{p.steps.length} passos</p>
+              <CardContent className="py-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm font-medium text-foreground">{p.name}</span>
+                    <span className="ml-2 text-xs text-dim">({p.category})</span>
+                    <p className="mt-1 text-xs text-dim">{p.steps.length} passos</p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => executeMutation.mutate(p.id)}
+                    disabled={executingId === p.id}
+                  >
+                    {executingId === p.id ? (
+                      <>
+                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                        Executando...
+                      </>
+                    ) : (
+                      'Executar'
+                    )}
+                  </Button>
                 </div>
-                <Button variant="secondary" size="sm">
-                  Executar
-                </Button>
+                {lastResult && lastResult.playbook_id === p.id && (
+                  <div className="mt-3 rounded-lg border border-border bg-surface p-3">
+                    <div className="flex items-center gap-2 text-xs">
+                      <CheckCircle className="h-3 w-3 text-green-500" />
+                      <span className="text-foreground">Executado em {new Date(lastResult.completed_at).toLocaleString('pt-BR')}</span>
+                    </div>
+                    {lastResult.results && Object.keys(lastResult.results).length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {Object.entries(lastResult.results).map(([stepId, result]: [string, any]) => (
+                          <div key={stepId} className="flex items-center gap-2 text-xs">
+                            {result.status === 'ok' ? (
+                              <CheckCircle className="h-3 w-3 text-green-500" />
+                            ) : (
+                              <AlertTriangle className="h-3 w-3 text-red-500" />
+                            )}
+                            <span className="text-dim">Passo {stepId}:</span>
+                            <span className="text-foreground">
+                              {result.output?.count !== undefined ? `${result.output.count} resultados` : result.output?.message || 'OK'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}

@@ -177,6 +177,33 @@ services:
       - sokol-net
 
   # ---------------------------------------------------------------------------
+  # Face Recognition — InsightFace detection + embeddings
+  # ---------------------------------------------------------------------------
+  sokol-face:
+    build:
+      context: ../services/face
+      dockerfile: Dockerfile
+    container_name: sokol-face
+    restart: unless-stopped
+    environment:
+      SOKOL_MODEL_DIR: /data/models/face
+      SOKOL_FACE_CONF: ${SOKOL_FACE_CONF:-0.5}
+      SOKOL_FACE_SIM: ${SOKOL_FACE_SIM:-0.4}
+    ports:
+      - "${SOKOL_FACE_PORT:-8011}:8011"
+    volumes:
+      - sokol-face-models:/data/models/face
+      - ../data/media-cache:/data/media-cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8011/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - sokol-net
+
+  # ---------------------------------------------------------------------------
   # Frontend — React SPA
   # ---------------------------------------------------------------------------
   sokol-web:
@@ -199,6 +226,8 @@ volumes:
   sokol-models:
     driver: local
   sokol-vision-models:
+    driver: local
+  sokol-face-models:
     driver: local
 
 networks:
