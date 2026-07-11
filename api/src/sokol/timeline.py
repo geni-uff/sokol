@@ -58,6 +58,8 @@ def get_timeline(
     offset: int = Query(0, ge=0),
     kind: str | None = None,
     app: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     user: CurrentUser = Depends(get_current_user),
 ):
     """Get timeline events for a case."""
@@ -74,6 +76,12 @@ def get_timeline(
         if app:
             conditions.append("e.app = :app")
             bind["app"] = app
+        if start_date:
+            conditions.append("e.ts >= :start_date")
+            bind["start_date"] = start_date
+        if end_date:
+            conditions.append("e.ts <= :end_date")
+            bind["end_date"] = end_date
 
         where = " AND ".join(conditions)
 
@@ -160,6 +168,50 @@ def get_case_stats(
             entities=entities,
             media=media,
         )
+
+
+@router.get("/nearby", response_model=list[dict])
+def get_nearby_events(
+    case_id: UUID,
+    lat: float = Query(...),
+    lon: float = Query(...),
+    radius_km: float = Query(1.0, ge=0.1, le=100),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Get events within radius of a point."""
+    factory = get_session_factory()
+    with factory() as db:
+        require_case_member(db, case_id, user.user_id)
+
+        rows = db.execute(
+            text("""
+                SELECT id, ts, summary, kind,
+                       ST_DistanceSphere(geo::geometry, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)) as distance_m
+                FROM events
+                WHERE case_id = :cid
+                  AND geo IS NOT NULL
+                  AND ST_DWithin(geo::geography, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, :radius_m)
+                ORDER BY distance_m ASC
+                LIMIT 50
+            """),
+            {
+                "cid": case_id,
+                "lat": lat,
+                "lon": lon,
+                "radius_m": radius_km * 1000,
+            },
+        ).fetchall()
+
+        return [
+            {
+                "id": str(r[0]),
+                "ts": r[1].isoformat() if r[1] else None,
+                "summary": r[2],
+                "kind": r[3],
+                "distance_m": float(r[4]) if r[4] else 0,
+            }
+            for r in rows
+        ]
 
 
 @router.get("/geo", response_model=list[GeoEvent])

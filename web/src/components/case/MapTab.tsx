@@ -61,12 +61,32 @@ function LeafletMap({ geoEvents }: { geoEvents: GeoEvent[] }) {
       })
 
       if (coords.length > 1) {
+        // Calculate distance and average speed
+        let totalDistanceKm = 0
+        for (let i = 0; i < coords.length - 1; i++) {
+          const [lat1, lon1] = coords[i]
+          const [lat2, lon2] = coords[i + 1]
+          const R = 6371 // Earth radius in km
+          const dLat = ((lat2 - lat1) * Math.PI) / 180
+          const dLon = ((lon2 - lon1) * Math.PI) / 180
+          const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos((lat1 * Math.PI) / 180) *
+              Math.cos((lat2 * Math.PI) / 180) *
+              Math.sin(dLon / 2) *
+              Math.sin(dLon / 2)
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+          totalDistanceKm += R * c
+        }
+
         L.polyline(coords, {
-          color: '#888',
-          weight: 2,
-          opacity: 0.7,
+          color: '#8b5cf6',
+          weight: 3,
+          opacity: 0.8,
           dashArray: '6 4',
-        }).addTo(map)
+        })
+          .bindPopup(`<div style="font-size:11px"><b>Trajeto</b><br/>${coords.length} pontos<br/>${totalDistanceKm.toFixed(1)}km</div>`)
+          .addTo(map)
       }
 
       if (coords.length > 0) {
@@ -98,6 +118,9 @@ function LeafletMap({ geoEvents }: { geoEvents: GeoEvent[] }) {
 export function MapTab({ caseId }: { caseId: string }) {
   const [subTab, setSubTab] = useState<'mapa' | 'eventos'>('mapa')
   const [kindFilter, setKindFilter] = useState('')
+  const [appFilter, setAppFilter] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [page, setPage] = useState(0)
   const limit = 50
 
@@ -108,8 +131,16 @@ export function MapTab({ caseId }: { caseId: string }) {
   })
 
   const { data: timelineData, isLoading: timelineLoading } = useQuery({
-    queryKey: ['timeline', caseId, kindFilter, page],
-    queryFn: () => apiTimeline(caseId, limit, page * limit, kindFilter || undefined),
+    queryKey: ['timeline', caseId, kindFilter, appFilter, startDate, endDate, page],
+    queryFn: () => apiTimeline(
+      caseId,
+      limit,
+      page * limit,
+      kindFilter || undefined,
+      appFilter || undefined,
+      startDate || undefined,
+      endDate || undefined,
+    ),
     enabled: !!caseId,
   })
 
@@ -228,33 +259,108 @@ export function MapTab({ caseId }: { caseId: string }) {
 
       {subTab === 'eventos' && (
         <>
-          <div className="mb-4 flex items-center gap-3">
-            <Layers className="h-4 w-4 text-dim" />
-            <select
-              value={kindFilter}
-              onChange={(e) => {
-                setKindFilter(e.target.value)
-                setPage(0)
-              }}
-              style={{
-                height: '2.75rem',
-                borderRadius: '0.5rem',
-                border: '1px solid #262626',
-                backgroundColor: '#141414',
-                paddingLeft: '1rem',
-                paddingRight: '1rem',
-                fontSize: '0.875rem',
-                color: '#ededed',
-                paddingTop: 0,
-                paddingBottom: 0,
-              }}
-            >
-              <option value="">Todos os eventos</option>
-              <option value="message">Mensagens</option>
-              <option value="call">Chamadas</option>
-              <option value="location">Localizações</option>
-              <option value="web_visit">Web</option>
-            </select>
+          <div className="mb-4 space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Layers className="h-4 w-4 text-dim" />
+                <select
+                  value={kindFilter}
+                  onChange={(e) => {
+                    setKindFilter(e.target.value)
+                    setPage(0)
+                  }}
+                  style={{
+                    height: '2.75rem',
+                    borderRadius: '0.5rem',
+                    border: '1px solid #262626',
+                    backgroundColor: '#141414',
+                    paddingLeft: '1rem',
+                    paddingRight: '1rem',
+                    fontSize: '0.875rem',
+                    color: '#ededed',
+                    paddingTop: 0,
+                    paddingBottom: 0,
+                  }}
+                >
+                  <option value="">Todos os eventos</option>
+                  <option value="message">Mensagens</option>
+                  <option value="call">Chamadas</option>
+                  <option value="location">Localizações</option>
+                  <option value="web_visit">Web</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-dim">App:</span>
+                <select
+                  value={appFilter}
+                  onChange={(e) => {
+                    setAppFilter(e.target.value)
+                    setPage(0)
+                  }}
+                  style={{
+                    height: '2.75rem',
+                    borderRadius: '0.5rem',
+                    border: '1px solid #262626',
+                    backgroundColor: '#141414',
+                    paddingLeft: '1rem',
+                    paddingRight: '1rem',
+                    fontSize: '0.875rem',
+                    color: '#ededed',
+                    paddingTop: 0,
+                    paddingBottom: 0,
+                    minWidth: '150px',
+                  }}
+                >
+                  <option value="">Todos os apps</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="telegram">Telegram</option>
+                  <option value="messenger">Messenger</option>
+                  <option value="signal">Signal</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs text-dim">Período:</span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value)
+                  setPage(0)
+                }}
+                style={{
+                  height: '2.75rem',
+                  borderRadius: '0.5rem',
+                  border: '1px solid #262626',
+                  backgroundColor: '#141414',
+                  paddingLeft: '1rem',
+                  paddingRight: '1rem',
+                  fontSize: '0.875rem',
+                  color: '#ededed',
+                }}
+              />
+              <span className="text-xs text-dim">até</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value)
+                  setPage(0)
+                }}
+                style={{
+                  height: '2.75rem',
+                  borderRadius: '0.5rem',
+                  border: '1px solid #262626',
+                  backgroundColor: '#141414',
+                  paddingLeft: '1rem',
+                  paddingRight: '1rem',
+                  fontSize: '0.875rem',
+                  color: '#ededed',
+                }}
+              />
+            </div>
           </div>
 
           {timelineLoading ? (
