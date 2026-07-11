@@ -6,11 +6,13 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import text
+from uuid import UUID
 
+from .auth import CurrentUser, get_current_user, require_case_member
 from .db import get_session_factory
 
 router = APIRouter(prefix="/media", tags=["media"])
@@ -77,18 +79,6 @@ def list_media(
 
         rows = db.execute(text(query), params).fetchall()
 
-        # Fallback: if no media linked to case, return all media (for synth/UFDR cases)
-        if not rows:
-            fallback = db.execute(
-                text("""
-                    SELECT hash, mime_type, size_bytes,
-                           FALSE as thumbnail_available, 0 as usage_count
-                    FROM media ORDER BY created_at DESC LIMIT :limit
-                """),
-                {"limit": limit},
-            ).fetchall()
-            rows = fallback
-
         return [
             MediaListItem(
                 hash=r[0],
@@ -102,16 +92,28 @@ def list_media(
 
 
 @router.get("/file/{media_hash}")
-def get_media_file(media_hash: str):
-    """Get media file by hash."""
+def get_media_file(
+    media_hash: str,
+    case_id: UUID = Query(...),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Get media file by hash — only if linked to case."""
     factory = get_session_factory()
     with factory() as db:
+        require_case_member(db, case_id, user.user_id)
+
         row = db.execute(
-            text("SELECT storage_ref, mime_type FROM media WHERE hash = :hash"),
-            {"hash": media_hash},
+            text("""
+                SELECT m.storage_ref, m.mime_type
+                FROM media m
+                LEFT JOIN messages msg ON msg.media_hash = m.hash AND msg.case_id = :cid
+                LEFT JOIN artifacts art ON art.media_hash = m.hash AND art.case_id = :cid
+                WHERE m.hash = :hash AND (msg.id IS NOT NULL OR art.id IS NOT NULL)
+            """),
+            {"hash": media_hash, "cid": case_id},
         ).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="Media not found")
+            raise HTTPException(status_code=404, detail="Media not found in case")
 
         storage_ref = row[0]
         mime_type = row[1] or "application/octet-stream"
@@ -164,16 +166,28 @@ def get_media_file(media_hash: str):
 
 
 @router.get("/thumbnail/{media_hash}")
-def get_media_thumbnail(media_hash: str):
-    """Get media thumbnail by hash."""
+def get_media_thumbnail(
+    media_hash: str,
+    case_id: UUID = Query(...),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Get media thumbnail by hash — only if linked to case."""
     factory = get_session_factory()
     with factory() as db:
+        require_case_member(db, case_id, user.user_id)
+
         row = db.execute(
-            text("SELECT thumbnail_ref, mime_type FROM media WHERE hash = :hash"),
-            {"hash": media_hash},
+            text("""
+                SELECT m.thumbnail_ref, m.mime_type
+                FROM media m
+                LEFT JOIN messages msg ON msg.media_hash = m.hash AND msg.case_id = :cid
+                LEFT JOIN artifacts art ON art.media_hash = m.hash AND art.case_id = :cid
+                WHERE m.hash = :hash AND (msg.id IS NOT NULL OR art.id IS NOT NULL)
+            """),
+            {"hash": media_hash, "cid": case_id},
         ).fetchone()
         if not row or not row[0]:
-            raise HTTPException(status_code=404, detail="Thumbnail not found")
+            raise HTTPException(status_code=404, detail="Thumbnail not found in case")
 
         thumbnail_path = Path(row[0])
         if not thumbnail_path.exists():
@@ -184,16 +198,28 @@ def get_media_thumbnail(media_hash: str):
 
 
 @router.get("/info/{media_hash}", response_model=MediaInfo)
-def get_media_info(media_hash: str):
-    """Get media metadata."""
+def get_media_info(
+    media_hash: str,
+    case_id: UUID = Query(...),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Get media metadata — only if linked to case."""
     factory = get_session_factory()
     with factory() as db:
+        require_case_member(db, case_id, user.user_id)
+
         row = db.execute(
-            text("SELECT * FROM media WHERE hash = :hash"),
-            {"hash": media_hash},
+            text("""
+                SELECT m.*
+                FROM media m
+                LEFT JOIN messages msg ON msg.media_hash = m.hash AND msg.case_id = :cid
+                LEFT JOIN artifacts art ON art.media_hash = m.hash AND art.case_id = :cid
+                WHERE m.hash = :hash AND (msg.id IS NOT NULL OR art.id IS NOT NULL)
+            """),
+            {"hash": media_hash, "cid": case_id},
         ).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="Media not found")
+            raise HTTPException(status_code=404, detail="Media not found in case")
 
         return MediaInfo(
             hash=row["hash"],

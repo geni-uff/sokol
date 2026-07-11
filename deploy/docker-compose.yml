@@ -50,6 +50,8 @@ services:
       - ../synth/output:/data/ufdr-extract/synth:ro
       - ../:/data/project:ro
       - ../data/media-cache:/data/media-cache
+      - ../data/staging:/data/staging
+      - ../UFDRsTest:/ingest/inbox:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -202,6 +204,31 @@ services:
       start_period: 60s
     networks:
       - sokol-net
+
+  # ---------------------------------------------------------------------------
+  # Worker — UFDR ingestion and background job processing
+  # ---------------------------------------------------------------------------
+  sokol-worker:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+    container_name: sokol-worker
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://sokol:change_me@localhost:5433/sokol
+      PYTHONPATH: /data/project
+    depends_on:
+      sokol-postgres:
+        condition: service_healthy
+    volumes:
+      - ../:/data/project:ro
+      - ../data/media-cache:/data/media-cache
+      - ../data/staging:/data/staging
+      - ../UFDRsTest:/ingest/inbox:ro
+    command: ["bash", "-c", "cd /data/project && python -m worker.loop"]
 
   # ---------------------------------------------------------------------------
   # Frontend — React SPA

@@ -41,6 +41,14 @@ class FaceSearchResult(BaseModel):
     label: Optional[str] = None
 
 
+class FaceSubject(BaseModel):
+    subject_id: str
+    label: Optional[str] = None
+    face_count: int
+    representative_face: FaceEmbedding
+    faces: list[FaceEmbedding]
+
+
 # ── Helpers ─────────────────────────────────────────────────────────────────
 def _find_media_file(media_hash: str) -> Optional[Path]:
     """Find a media file on disk by hash, searching media-cache."""
@@ -351,3 +359,126 @@ async def delete_face(face_id: str):
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Face not found")
         return {"ok": True}
+
+
+@router.get("/{case_id}/subjects", response_model=list[FaceSubject])
+async def list_subjects(
+    case_id: str,
+    threshold: float = Query(0.55, ge=0.0, le=1.0),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """Group faces into unique subjects by label or embedding similarity."""
+    factory = get_session_factory()
+    with factory() as db:
+        rows = (
+            db.execute(
+                text("""
+                SELECT id, case_id, media_hash, bbox, confidence, label, age, gender, created_at, embedding
+                FROM face_embeddings
+                WHERE case_id = :cid
+                ORDER BY created_at DESC
+                LIMIT :limit
+            """),
+                {"cid": case_id, "limit": limit},
+            )
+            .mappings()
+            .all()
+        )
+
+        if not rows:
+            return []
+
+        faces = []
+        for r in rows:
+            faces.append(
+                {
+                    "id": str(r["id"]),
+                    "case_id": str(r["case_id"]),
+                    "media_hash": r["media_hash"],
+                    "bbox": r["bbox"],
+                    "confidence": r["confidence"],
+                    "label": r["label"],
+                    "age": r["age"],
+                    "gender": r["gender"],
+                    "created_at": str(r["created_at"]),
+                    "_embedding": str(r["embedding"]),
+                }
+            )
+
+        # Group labeled faces first
+        subjects: dict[str, dict] = {}
+        unlabeled: list[dict] = []
+
+        for f in faces:
+            lbl = (f.get("label") or "").strip()
+            if lbl:
+                key = f"label:{lbl}"
+                if key not in subjects:
+                    subjects[key] = {
+                        "subject_id": key,
+                        "label": lbl,
+                        "faces": [],
+                    }
+                subjects[key]["faces"].append(f)
+            else:
+                unlabeled.append(f)
+
+        # Cluster unlabeled by embedding similarity
+        for f in unlabeled:
+            emb_str = f["_embedding"]
+            matched = False
+            for key, subj in subjects.items():
+                if key.startswith("label:"):
+                    continue
+                # Compare with representative face
+                rep = subj["faces"][0]
+                try:
+                    sim = db.execute(
+                        text("""
+                            SELECT 1 - (CAST(:a AS vector) <=> CAST(:b AS vector)) as sim
+                        """),
+                        {"a": emb_str, "b": rep["_embedding"]},
+                    ).scalar()
+                    if sim and sim > threshold:
+                        subj["faces"].append(f)
+                        matched = True
+                        break
+                except Exception:
+                    continue
+            if not matched:
+                new_key = f"auto:{f['id']}"
+                subjects[new_key] = {
+                    "subject_id": new_key,
+                    "label": None,
+                    "faces": [f],
+                }
+
+        result = []
+        for key, subj in subjects.items():
+            all_faces_data = []
+            for ff in subj["faces"]:
+                all_faces_data.append(
+                    FaceEmbedding(
+                        id=ff["id"],
+                        case_id=ff["case_id"],
+                        media_hash=ff["media_hash"],
+                        bbox=ff["bbox"],
+                        confidence=ff["confidence"],
+                        label=ff["label"],
+                        age=ff["age"],
+                        gender=ff["gender"],
+                        created_at=ff["created_at"],
+                    )
+                )
+            result.append(
+                FaceSubject(
+                    subject_id=subj["subject_id"],
+                    label=subj["label"],
+                    face_count=len(all_faces_data),
+                    representative_face=all_faces_data[0],
+                    faces=all_faces_data,
+                )
+            )
+
+        result.sort(key=lambda s: s.face_count, reverse=True)
+        return result[:limit]

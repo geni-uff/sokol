@@ -42,6 +42,15 @@ class CaseStats(BaseModel):
     media: int
 
 
+class GeoEvent(BaseModel):
+    id: str
+    ts: str | None
+    summary: str
+    lat: float
+    lon: float
+    meta: dict | None = None
+
+
 @router.get("/timeline", response_model=TimelineResponse)
 def get_timeline(
     case_id: UUID,
@@ -143,34 +152,6 @@ def get_case_stats(
             {"cid": case_id},
         ).scalar()
 
-        media = db.execute(
-            text("SELECT count(*) FROM media"),
-        ).scalar()
-
-        messages = db.execute(
-            __import__("sqlalchemy").text(
-                "SELECT count(*) FROM messages WHERE case_id = :cid"
-            ),
-            {"cid": case_id},
-        ).scalar()
-
-        chunks = db.execute(
-            __import__("sqlalchemy").text(
-                "SELECT count(*) FROM chunks WHERE case_id = :cid"
-            ),
-            {"cid": case_id},
-        ).scalar()
-
-        entities = db.execute(
-            __import__("sqlalchemy").text(
-                "SELECT count(*) FROM entities WHERE case_id = :cid"
-            ),
-            {"cid": case_id},
-        ).scalar()
-
-        media = db.execute(
-            __import__("sqlalchemy").text("SELECT count(*) FROM media"),
-        ).scalar()
 
         return CaseStats(
             events=events,
@@ -179,3 +160,40 @@ def get_case_stats(
             entities=entities,
             media=media,
         )
+
+
+@router.get("/geo", response_model=list[GeoEvent])
+def get_geo_events(
+    case_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Get all geolocalized events for a case, ordered by time."""
+    factory = get_session_factory()
+    with factory() as db:
+        require_case_member(db, case_id, user.user_id)
+
+        rows = db.execute(
+            text("""
+                SELECT id, ts, summary, meta,
+                       ST_Y(geo::geometry) as lat,
+                       ST_X(geo::geometry) as lon
+                FROM events
+                WHERE case_id = :cid
+                  AND kind = 'location'
+                  AND geo IS NOT NULL
+                ORDER BY ts ASC
+            """),
+            {"cid": case_id},
+        ).fetchall()
+
+        return [
+            GeoEvent(
+                id=str(r[0]),
+                ts=r[1].isoformat() if r[1] else None,
+                summary=r[2],
+                lat=float(r[4]),
+                lon=float(r[5]),
+                meta=r[3] if isinstance(r[3], dict) else {},
+            )
+            for r in rows
+        ]

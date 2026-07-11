@@ -29,6 +29,7 @@ VISION_URL = "http://localhost:8007"
 FACE_URL = "http://localhost:8011"
 PLATE_URL = "http://localhost:8010"
 ASR_URL = "http://localhost:8009"
+OCR_URL = "http://localhost:8008"
 
 
 # ── Models ─────────────────────────────────────────────────────────────────
@@ -422,6 +423,89 @@ def _run_asr_job(job_id: str, case_id: str, audio_hashes: list[str]):
         emit_progress(job_id, "asr", "failed", 0.0, str(e))
 
 
+def _run_ocr_job(job_id: str, case_id: str, image_hashes: list[str]):
+    """Run OCR text extraction on document images."""
+    try:
+        emit_progress(
+            job_id,
+            "ocr",
+            "running",
+            0.0,
+            f"Extracting text from {len(image_hashes)} images...",
+        )
+
+        total = len(image_hashes)
+        total_extracted = 0
+
+        for i, h in enumerate(image_hashes):
+            p = _find_media_file(h)
+            if not p:
+                continue
+
+            try:
+                with httpx.Client(timeout=120) as client:
+                    with open(p, "rb") as f:
+                        ext = p.suffix.lower()
+                        mime_map = {
+                            ".jpg": "image/jpeg",
+                            ".jpeg": "image/jpeg",
+                            ".png": "image/png",
+                            ".bmp": "image/bmp",
+                        }
+                        content_type = mime_map.get(ext, "image/jpeg")
+                        files = {"file": (p.name, f, content_type)}
+                        resp = client.post(f"{OCR_URL}/api/ocr", files=files)
+                        resp.raise_for_status()
+                        result = resp.json()
+
+                text_content = result.get("text", "")
+                if text_content.strip():
+                    lines = result.get("lines", [])
+                    factory = get_session_factory()
+                    with factory() as db:
+                        db.execute(
+                            text("""
+                                INSERT INTO ocr_results (case_id, media_hash, text, confidence, language, lines, created_at)
+                                VALUES (:cid, :hash, :text, :conf, :lang, CAST(:lines AS jsonb), now())
+                                ON CONFLICT (case_id, media_hash) DO UPDATE SET text = EXCLUDED.text, lines = EXCLUDED.lines
+                            """),
+                            {
+                                "cid": case_id,
+                                "hash": h,
+                                "text": text_content,
+                                "conf": result.get("confidence", 0),
+                                "lang": result.get("language"),
+                                "lines": json.dumps(lines),
+                            },
+                        )
+                        db.commit()
+                        total_extracted += 1
+
+                progress = (i + 1) / total
+                if (i + 1) % 5 == 0 or i + 1 == total:
+                    emit_progress(
+                        job_id,
+                        "ocr",
+                        "running",
+                        progress,
+                        f"Image {i + 1}/{total}: {total_extracted} with text",
+                    )
+
+            except Exception:
+                continue
+
+        emit_progress(
+            job_id,
+            "ocr",
+            "completed",
+            1.0,
+            f"Done: {total_extracted} images with extracted text",
+        )
+
+    except Exception as e:
+        emit_progress(job_id, "ocr", "failed", 0.0, str(e))
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────
 @router.post("/pipeline/{case_id}", response_model=PipelineResult)
 async def launch_pipeline(case_id: str):
@@ -444,6 +528,7 @@ async def launch_pipeline(case_id: str):
             ("yolo", _run_yolo_job),
             ("faces", _run_face_job),
             ("plates", _run_plate_job),
+            ("ocr", _run_ocr_job),
         ]:
             job_id = str(uuid4())
             job_ids[kind] = job_id

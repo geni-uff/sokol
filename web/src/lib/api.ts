@@ -564,3 +564,55 @@ export async function apiListTranscriptions(caseId: string, search?: string): Pr
   if (!res.ok) return []
   return res.json()
 }
+
+// ── OCR Results ────────────────────────────────────────────────────────
+export interface OCRResult {
+  id: string
+  case_id: string
+  media_hash: string
+  text: string
+  confidence: number | null
+  language: string | null
+  lines: Array<{ text: string; bbox: number[]; confidence: number }>
+  created_at: string
+}
+
+export async function apiListOCR(caseId: string, search?: string): Promise<OCRResult[]> {
+  const params = new URLSearchParams()
+  if (search) params.set('search', search)
+  const res = await fetch(`${API_BASE}/ocr/${caseId}?${params}`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+
+// ── Face Subjects ──────────────────────────────────────────────────────
+export interface FaceSubject {
+  subject_id: string
+  label: string | null
+  face_count: number
+  representative_face: FaceEmbedding
+  faces: FaceEmbedding[]
+}
+
+export async function apiListSubjects(caseId: string, threshold = 0.55): Promise<FaceSubject[]> {
+  const params = new URLSearchParams({ threshold: String(threshold) })
+  const res = await fetch(`${API_BASE}/faces/${caseId}/subjects?${params}`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+
+// ── Geo Events ────────────────────────────────────────────────────────
+export interface GeoEvent {
+  id: string
+  ts: string | null
+  summary: string
+  lat: number
+  lon: number
+  meta: Record<string, unknown> | null
+}
+
+export async function apiGeoEvents(caseId: string): Promise<GeoEvent[]> {
+  const res = await fetch(`${API_BASE}/events/geo?case_id=${caseId}`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}

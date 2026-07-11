@@ -2,7 +2,6 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   apiGetCase,
-  apiTimeline,
   apiSearch,
   apiChat,
   apiCaseStats,
@@ -15,19 +14,15 @@ import {
   apiListPlaybooks,
   apiExecutePlaybook,
   apiListMedia,
-  apiListFaces,
-  apiDetectFaces,
-  apiSearchFaces,
-  apiLabelFace,
   apiLaunchPipeline,
   apiListPlates,
   apiLabelPlate,
   apiListTranscriptions,
-  type Event,
+  apiDetectionStats,
+  apiMediaWithDetections,
+  apiGenerateReport,
   type SearchResult,
   type CaseStats,
-  type FaceEmbedding,
-  type FaceSearchResult,
   type PlateDetection,
   type Transcription,
 } from '@/lib/api'
@@ -51,7 +46,6 @@ import {
   AlertTriangle,
   CheckCircle,
   ExternalLink,
-  Filter,
   Bookmark,
   Eye,
   AlertCircle,
@@ -67,6 +61,7 @@ import {
   Car,
   Smartphone,
   Mic,
+  FileSearch,
   type LucideIcon,
 } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
@@ -78,6 +73,9 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { cn } from '@/lib/cn'
 import { healthLevelFromStatus, healthStatusLabel } from '@/lib/healthStatus'
+import { MapTab } from '@/components/case/MapTab'
+import { FacesTab } from '@/components/case/FacesTab'
+import { OCRTab } from '@/components/case/OCRTab'
 
 const NAV_ITEMS = [
   { icon: BarChart3, label: 'Timeline', id: 'timeline' },
@@ -91,6 +89,7 @@ const NAV_ITEMS = [
   { icon: User, label: 'Rostos', id: 'faces' },
   { icon: Car, label: 'Placas', id: 'plates' },
   { icon: Mic, label: 'Voz', id: 'transcriptions' },
+  { icon: FileSearch, label: 'OCR', id: 'ocr' },
   { icon: GitBranch, label: 'Grafo', id: 'graph' },
   { icon: Play, label: 'Playbooks', id: 'playbooks' },
   { icon: FileText, label: 'Relatórios', id: 'reports' },
@@ -240,7 +239,7 @@ export default function CaseDetail() {
         isChat ? 'flex min-h-0 flex-1 flex-col overflow-hidden p-0' : undefined
       }
     >
-      {activeTab === 'timeline' && <TimelineTab caseId={caseId!} />}
+      {activeTab === 'timeline' && <MapTab caseId={caseId!} />}
       {activeTab === 'search' && <SearchTab caseId={caseId!} />}
       {activeTab === 'chat' && <ChatTab caseId={caseId!} />}
       {activeTab === 'data' && <DataTab stats={stats} isLoading={statsLoading} />}
@@ -251,138 +250,12 @@ export default function CaseDetail() {
       {activeTab === 'faces' && <FacesTab caseId={caseId!} />}
       {activeTab === 'plates' && <PlatesTab caseId={caseId!} />}
       {activeTab === 'transcriptions' && <TranscriptionsTab caseId={caseId!} />}
+      {activeTab === 'ocr' && <OCRTab caseId={caseId!} />}
       {activeTab === 'graph' && <GraphTab caseId={caseId!} />}
       {activeTab === 'playbooks' && <PlaybooksTab caseId={caseId!} />}
-      {activeTab === 'reports' && <ReportsTab />}
+      {activeTab === 'reports' && <ReportsTab caseId={caseId!} />}
       {activeTab === 'ops' && <OpsTab />}
     </AppShell>
-  )
-}
-
-function TimelineTab({ caseId }: { caseId: string }) {
-  const [kindFilter, setKindFilter] = useState('')
-  const [page, setPage] = useState(0)
-  const limit = 50
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['timeline', caseId, kindFilter, page],
-    queryFn: () => apiTimeline(caseId, limit, page * limit, kindFilter || undefined),
-    enabled: !!caseId,
-  })
-
-  const events = data?.events ?? []
-  const total = data?.total ?? 0
-
-  return (
-    <>
-      <PageHeader
-        icon={Clock}
-        title="Timeline"
-        description={`${total.toLocaleString()} eventos`}
-        actions={
-          <div className="flex items-center gap-3">
-            <Filter className="h-4 w-4 text-dim" />
-            <select
-              value={kindFilter}
-              onChange={(e) => {
-                setKindFilter(e.target.value)
-                setPage(0)
-              }}
-              className={SELECT_CLASS}
-            >
-              <option value="">Todos os eventos</option>
-              <option value="message">Mensagens</option>
-              <option value="call">Chamadas</option>
-              <option value="location">Localizações</option>
-              <option value="web_visit">Web</option>
-            </select>
-          </div>
-        }
-      />
-
-      {isLoading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-5 w-5 animate-spin text-muted" />
-        </div>
-      ) : events.length === 0 ? (
-        <EmptyState icon={Clock} title="Nenhum evento encontrado" />
-      ) : (
-        <div className="space-y-4">
-          {events.map((event: Event) => {
-            const Icon = KIND_ICONS[event.kind] || Clock
-            const color = KIND_COLORS[event.kind] || 'text-dim'
-            return (
-              <Card
-                key={event.id}
-                className="group border-border hover:border-border-hover"
-              >
-                <CardContent className="flex items-start gap-5 py-6">
-                  <div className={cn('mt-0.5 shrink-0', color)}>
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs text-muted">
-                        {event.ts ? new Date(event.ts).toLocaleString('pt-BR') : '?'}
-                      </span>
-                      {event.tz_original && <Badge className="shrink-0">{event.tz_original}</Badge>}
-                      <Badge className="shrink-0 capitalize">{event.kind}</Badge>
-                      {event.app && (
-                        <Badge variant="accent" className="shrink-0">
-                          {event.app}
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="break-words text-sm leading-relaxed text-foreground">
-                      {event.summary}
-                    </p>
-                    {event.actor && event.counterpart && (
-                      <p className="mt-2 break-words text-xs text-dim">
-                        <span className="font-medium text-muted">{event.actor}</span>
-                        {' → '}
-                        <span className="font-medium text-muted">{event.counterpart}</span>
-                      </p>
-                    )}
-                  </div>
-                  {event.ref_table && event.ref_id && (
-                    <button
-                      type="button"
-                      className="shrink-0 rounded-lg p-2 opacity-0 transition-opacity hover:bg-white/5 group-hover:opacity-100"
-                    >
-                      <ExternalLink className="h-4 w-4 text-dim" />
-                    </button>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      )}
-
-      {total > limit && (
-        <div className="mt-6 flex items-center justify-center gap-3 pb-4">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setPage(Math.max(0, page - 1))}
-            disabled={page === 0}
-          >
-            Anterior
-          </Button>
-          <span className="text-xs text-dim">
-            Página {page + 1} de {Math.ceil(total / limit)}
-          </span>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setPage(page + 1)}
-            disabled={(page + 1) * limit >= total}
-          >
-            Próxima
-          </Button>
-        </div>
-      )}
-    </>
   )
 }
 
@@ -792,15 +665,12 @@ function MediaTab({ caseId }: { caseId: string }) {
 
   const { data: detectionStats = [] } = useQuery({
     queryKey: ['detectionStats', caseId, minConfidence],
-    queryFn: () => import('@/lib/api').then((m) => m.apiDetectionStats(caseId, minConfidence)),
+    queryFn: () => apiDetectionStats(caseId, minConfidence),
   })
 
   const { data: mediaWithDetections = [], isLoading: detectionsLoading } = useQuery({
     queryKey: ['mediaWithDetections', caseId, selectedClass, minConfidence, showOnlyDetections],
-    queryFn: () =>
-      import('@/lib/api').then((m) =>
-        m.apiMediaWithDetections(caseId, selectedClass || undefined, minConfidence),
-      ),
+    queryFn: () => apiMediaWithDetections(caseId, selectedClass || undefined, minConfidence),
     enabled: showOnlyDetections,
   })
 
@@ -810,6 +680,8 @@ function MediaTab({ caseId }: { caseId: string }) {
       queryClient.invalidateQueries({ queryKey: ['media', caseId] })
       queryClient.invalidateQueries({ queryKey: ['plates', caseId] })
       queryClient.invalidateQueries({ queryKey: ['transcriptions', caseId] })
+      queryClient.invalidateQueries({ queryKey: ['ocr', caseId] })
+      queryClient.invalidateQueries({ queryKey: ['subjects', caseId] })
     },
   })
 
@@ -955,7 +827,7 @@ function MediaTab({ caseId }: { caseId: string }) {
             return (
               <Card key={m.hash} className="overflow-hidden hover:border-border-hover">
                 <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-surface-elevated">
-                  <MediaThumbnail hash={m.hash} mimeType={m.mime_type} />
+                  <MediaThumbnail hash={m.hash} mimeType={m.mime_type} caseId={caseId} />
 
                   {detections.length > 0 && (
                     <div className="absolute right-2 top-2 flex flex-col items-end gap-1">
@@ -1003,7 +875,7 @@ function MediaTab({ caseId }: { caseId: string }) {
   )
 }
 
-function MediaThumbnail({ hash, mimeType }: { hash: string; mimeType?: string | null }) {
+function MediaThumbnail({ hash, mimeType, caseId }: { hash: string; mimeType?: string | null; caseId: string }) {
   const [failed, setFailed] = useState(false)
 
   if (!mimeType?.startsWith('image/') || failed) {
@@ -1012,7 +884,7 @@ function MediaThumbnail({ hash, mimeType }: { hash: string; mimeType?: string | 
 
   return (
     <img
-      src={`/api/media/file/${hash}`}
+      src={`/api/media/file/${hash}?case_id=${caseId}`}
       alt={mimeType}
       className="h-full w-full object-contain"
       loading="lazy"
@@ -1047,209 +919,10 @@ function GraphTab({ caseId }: { caseId: string }) {
   )
 }
 
-function FacesTab({ caseId }: { caseId: string }) {
-  const queryClient = useQueryClient()
-  const [selectedFace, setSelectedFace] = useState<FaceEmbedding | null>(null)
-  const [searchResults, setSearchResults] = useState<FaceSearchResult[]>([])
-  const [searching, setSearching] = useState(false)
-  const [labelInput, setLabelInput] = useState('')
-
-  const { data: faces = [], isLoading } = useQuery({
-    queryKey: ['faces', caseId],
-    queryFn: () => apiListFaces(caseId),
-  })
-
-  const detectMutation = useMutation({
-    mutationFn: (mediaHash: string) => apiDetectFaces(caseId, mediaHash),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['faces', caseId] })
-    },
-  })
-
-  const searchMutation = useMutation({
-    mutationFn: (faceId: string) => apiSearchFaces(caseId, faceId),
-    onMutate: () => {
-      setSearching(true)
-      setSearchResults([])
-    },
-    onSuccess: (data) => {
-      setSearchResults(data)
-      setSearching(false)
-    },
-    onError: () => {
-      setSearching(false)
-    },
-  })
-
-  const labelMutation = useMutation({
-    mutationFn: ({ faceId, label }: { faceId: string; label: string }) =>
-      apiLabelFace(faceId, label),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['faces', caseId] })
-      setLabelInput('')
-    },
-  })
-
-  const handleSearch = (face: FaceEmbedding) => {
-    setSelectedFace(face)
-    searchMutation.mutate(face.id)
-  }
-
-  const handleLabel = (faceId: string) => {
-    if (labelInput.trim()) {
-      labelMutation.mutate({ faceId, label: labelInput.trim() })
-    }
-  }
-
-  return (
-    <>
-      <PageHeader
-        icon={User}
-        title="Rostos"
-        description={`${faces.length} rosto(s) detectado(s)`}
-      />
-      {isLoading ? (
-        <Loader2 className="h-5 w-5 animate-spin text-muted" />
-      ) : faces.length === 0 ? (
-        <EmptyState icon={User} title="Nenhum rosto detectado" />
-      ) : (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-            {faces.map((face) => (
-              <Card
-                key={face.id}
-                className={`cursor-pointer transition-all hover:ring-2 hover:ring-accent ${
-                  selectedFace?.id === face.id ? 'ring-2 ring-accent' : ''
-                }`}
-                onClick={() => setSelectedFace(face)}
-              >
-                <CardContent className="p-3">
-                  <div className="aspect-square rounded-lg bg-surface overflow-hidden">
-                    <img
-                      src={`/api/media/file/${face.media_hash}`}
-                      alt={face.label || 'Rosto'}
-                      className="h-full w-full object-cover"
-                      onError={(e) => {
-                        ;(e.target as HTMLImageElement).style.display = 'none'
-                      }}
-                    />
-                  </div>
-                  <div className="mt-2 space-y-1">
-                    {face.label && (
-                      <p className="text-xs font-medium text-foreground truncate">{face.label}</p>
-                    )}
-                    <p className="text-[10px] text-dim">
-                      {face.confidence ? `${(face.confidence * 100).toFixed(0)}%` : ''}
-                      {face.age ? ` | ${face.age} anos` : ''}
-                      {face.gender ? ` | ${face.gender === 'M' ? 'M' : 'F'}` : ''}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {selectedFace && (
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-start gap-4">
-                  <div className="h-24 w-24 flex-shrink-0 rounded-lg bg-surface overflow-hidden">
-                    <img
-                      src={`/api/media/file/${selectedFace.media_hash}`}
-                      alt="Rosto selecionado"
-                      className="h-full w-full object-cover"
-                    />
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        {selectedFace.label || 'Sem label'}
-                      </p>
-                      <p className="text-xs text-dim">
-                        Confiança: {selectedFace.confidence ? `${(selectedFace.confidence * 100).toFixed(1)}%` : 'N/A'}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={labelInput}
-                        onChange={(e) => setLabelInput(e.target.value)}
-                        placeholder="Label do rosto (ex: João)"
-                        className="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm"
-                        onKeyDown={(e) => e.key === 'Enter' && handleLabel(selectedFace.id)}
-                      />
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => handleLabel(selectedFace.id)}
-                        disabled={!labelInput.trim()}
-                      >
-                        Salvar
-                      </Button>
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={() => handleSearch(selectedFace)}
-                      disabled={searching}
-                    >
-                      {searching ? (
-                        <>
-                          <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                          Buscando...
-                        </>
-                      ) : (
-                        'Buscar em outros casos'
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {searchResults.length > 0 && (
-            <Card>
-              <CardContent className="p-4">
-                <h3 className="mb-3 text-sm font-medium text-foreground">
-                  Resultados da busca ({searchResults.length} correspondência(s))
-                </h3>
-                <div className="space-y-2">
-                  {searchResults.map((result) => (
-                    <div
-                      key={result.face_id}
-                      className="flex items-center gap-3 rounded-lg border border-border p-2"
-                    >
-                      <div className="h-12 w-12 flex-shrink-0 rounded bg-surface overflow-hidden">
-                        <img
-                          src={`/api/media/file/${result.media_hash}`}
-                          alt="Rosto encontrado"
-                          className="h-full w-full object-cover"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-xs font-medium text-foreground">
-                          {result.label || result.case_name}
-                        </p>
-                        <p className="text-[10px] text-dim">
-                          Similaridade: {(result.similarity * 100).toFixed(1)}% | Caso: {result.case_name}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
-    </>
-  )
-}
-
 function PlaybooksTab({ caseId }: { caseId: string }) {
   const queryClient = useQueryClient()
   const [executingId, setExecutingId] = useState<string | null>(null)
-  const [lastResult, setLastResult] = useState<any>(null)
+  const [lastResult, setLastResult] = useState<Record<string, unknown> | null>(null)
 
   const { data: playbooks = [], isLoading } = useQuery({
     queryKey: ['playbooks'],
@@ -1263,7 +936,7 @@ function PlaybooksTab({ caseId }: { caseId: string }) {
       setLastResult(null)
     },
     onSuccess: (data) => {
-      setLastResult(data)
+      setLastResult(data as Record<string, unknown>)
       setExecutingId(null)
       queryClient.invalidateQueries({ queryKey: ['playbooks'] })
     },
@@ -1306,27 +979,45 @@ function PlaybooksTab({ caseId }: { caseId: string }) {
                     )}
                   </Button>
                 </div>
+
                 {lastResult && lastResult.playbook_id === p.id && (
-                  <div className="mt-3 rounded-lg border border-border bg-surface p-3">
-                    <div className="flex items-center gap-2 text-xs">
-                      <CheckCircle className="h-3 w-3 text-green-500" />
-                      <span className="text-foreground">Executado em {new Date(lastResult.completed_at).toLocaleString('pt-BR')}</span>
+                  <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+                    <div className="mb-3 flex items-center gap-2 text-xs">
+                      <CheckCircle className="h-3.5 w-3.5 text-success" />
+                      <span className="font-medium text-foreground">
+                        Executado em{' '}
+                        {new Date(String(lastResult.completed_at)).toLocaleString('pt-BR')}
+                      </span>
                     </div>
-                    {lastResult.results && Object.keys(lastResult.results).length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {Object.entries(lastResult.results).map(([stepId, result]: [string, any]) => (
-                          <div key={stepId} className="flex items-center gap-2 text-xs">
-                            {result.status === 'ok' ? (
-                              <CheckCircle className="h-3 w-3 text-green-500" />
-                            ) : (
-                              <AlertTriangle className="h-3 w-3 text-red-500" />
-                            )}
-                            <span className="text-dim">Passo {stepId}:</span>
-                            <span className="text-foreground">
-                              {result.output?.count !== undefined ? `${result.output.count} resultados` : result.output?.message || 'OK'}
-                            </span>
-                          </div>
-                        ))}
+
+                    {lastResult.results && typeof lastResult.results === 'object' && (
+                      <div className="space-y-2">
+                        {Object.entries(lastResult.results as Record<string, Record<string, unknown>>).map(
+                          ([stepId, result]) => (
+                            <div
+                              key={stepId}
+                              className="flex items-start gap-3 rounded-md border border-border p-3"
+                            >
+                              {result.status === 'ok' ? (
+                                <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+                              ) : (
+                                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger" />
+                              )}
+                              <div className="flex-1">
+                                <p className="text-xs font-medium text-foreground">
+                                  Passo {stepId}
+                                </p>
+                                <p className="mt-0.5 text-xs text-dim">
+                                  {result.output && typeof result.output === 'object'
+                                    ? (result.output as Record<string, unknown>).count !== undefined
+                                      ? `${String((result.output as Record<string, unknown>).count)} resultados`
+                                      : String((result.output as Record<string, unknown>).message || 'OK')
+                                    : 'OK'}
+                                </p>
+                              </div>
+                            </div>
+                          ),
+                        )}
                       </div>
                     )}
                   </div>
@@ -1340,15 +1031,43 @@ function PlaybooksTab({ caseId }: { caseId: string }) {
   )
 }
 
-function ReportsTab() {
+function ReportsTab({ caseId }: { caseId: string }) {
+  const queryClient = useQueryClient()
+  const [generating, setGenerating] = useState(false)
+  const [title, setTitle] = useState('Laudo Forense')
+
+  const handleGenerate = async () => {
+    setGenerating(true)
+    try {
+      await apiGenerateReport(caseId, title)
+      queryClient.invalidateQueries({ queryKey: ['case', caseId] })
+    } catch {
+      // silent
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   return (
     <>
       <PageHeader icon={FileText} title="Relatórios" />
       <Card>
-        <CardContent className="py-12 text-center">
+        <CardContent className="py-8 text-center">
           <FileText className="mx-auto mb-3 h-8 w-8 text-dim" />
-          <p className="text-sm text-muted">Gerar relatório com cadeia de custódia</p>
-          <Button className="mt-4">Gerar Laudo</Button>
+          <p className="text-sm text-muted">Gerar relatório forense com cadeia de custódia</p>
+          <div className="mx-auto mt-4 flex max-w-sm gap-3">
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Título do laudo"
+              className={cn('flex-1', INPUT_CLASS)}
+            />
+            <Button onClick={handleGenerate} disabled={generating || !title.trim()}>
+              {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Gerar
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </>
@@ -1502,6 +1221,7 @@ function PlatesTab({ caseId }: { caseId: string }) {
 
 function TranscriptionsTab({ caseId }: { caseId: string }) {
   const [search, setSearch] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const { data: transcriptions = [], isLoading } = useQuery({
     queryKey: ['transcriptions', caseId, search],
@@ -1517,7 +1237,7 @@ function TranscriptionsTab({ caseId }: { caseId: string }) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar no texto transcrito..."
-          className="w-full rounded-lg border border-border bg-surface px-4 py-3 text-sm"
+          className={cn('w-full', INPUT_CLASS)}
         />
       </div>
       {isLoading ? (
@@ -1526,19 +1246,40 @@ function TranscriptionsTab({ caseId }: { caseId: string }) {
         <EmptyState icon={Mic} title="Nenhuma transcrição" description="Execute o pipeline de detecção para transcrever áudios" />
       ) : (
         <div className="space-y-3">
-          {transcriptions.map((t) => (
-            <Card key={t.id}>
-              <CardContent className="py-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <Mic className="h-4 w-4 text-dim" />
-                  <span className="text-[10px] text-dim">
-                    {t.language || 'unknown'} | {new Date(t.created_at).toLocaleString('pt-BR')}
-                  </span>
-                </div>
-                <p className="text-sm text-foreground leading-relaxed">{t.text}</p>
-              </CardContent>
-            </Card>
-          ))}
+          {transcriptions.map((t) => {
+            const isExpanded = expandedId === t.id
+            return (
+              <Card key={t.id} className="hover:border-border-hover">
+                <CardContent className="py-3">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 text-left"
+                    onClick={() => setExpandedId(isExpanded ? null : t.id)}
+                  >
+                    <Mic className="h-4 w-4 shrink-0 text-dim" />
+                    <span className="text-[10px] text-dim">
+                      {t.language || 'unknown'} | {new Date(t.created_at).toLocaleString('pt-BR')}
+                    </span>
+                  </button>
+                  <p className={cn(
+                    'mt-2 text-sm text-foreground leading-relaxed',
+                    !isExpanded && 'line-clamp-3',
+                  )}>
+                    {t.text}
+                  </p>
+                  {t.text.length > 200 && (
+                    <button
+                      type="button"
+                      className="mt-1 text-xs text-accent hover:underline"
+                      onClick={() => setExpandedId(isExpanded ? null : t.id)}
+                    >
+                      {isExpanded ? 'Recolher' : 'Expandir'}
+                    </button>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
       )}
     </>

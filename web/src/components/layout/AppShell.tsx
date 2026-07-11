@@ -1,4 +1,3 @@
-import { Shield } from 'lucide-react'
 import { type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { UserMenu } from '@/components/layout/UserMenu'
@@ -58,10 +57,7 @@ export function AppShell({
     <div className="flex h-[100dvh] overflow-hidden bg-background">
       <aside className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-surface">
         <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border px-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5">
-            <Shield className="h-4 w-4 text-foreground" />
-          </div>
-          <span className="text-sm font-semibold tracking-tight text-foreground">SOKOL</span>
+          <img src="/logo_sokol.png" alt="SOKOL" className="h-20 w-auto" />
         </div>
 
         {backButton && <div className="shrink-0 px-5 pt-5">{backButton}</div>}

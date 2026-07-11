@@ -1,7 +1,15 @@
-# SOKOL — Sistema Operacional de Konhecimento e Organização Local
+<p align="center">
+  <img src="logo_sokol.png" alt="SOKOL" width="480" />
+</p>
 
-Plataforma forense local para ingestão, enriquecimento, busca, chat investigativo
-e geração de relatórios a partir de evidências digitais.
+<h3 align="center">Plataforma de Análise e Investigação Forense</h3>
+
+<p align="center">
+  Sistema Operacional de Conhecimento e Organização Local — ingestão, enriquecimento,
+  busca, chat investigativo e geração de relatórios a partir de evidências digitais.
+</p>
+
+---
 
 ## Visão Geral
 
@@ -16,10 +24,14 @@ Docker Compose — sem dependência de serviços externos.
 | **Ingestão estrutural** | Parsing de UFDR (Cellebrite) com extração de mensagens, chamadas, localizações, web history e mídia |
 | **Busca híbrida** | Combinação de busca lexical (tsvector) e semântica (pgvector) com reranking |
 | **Chat investigativo** | Agente com ferramentas SQL parametrizadas que responde com fontes e citations |
-| **Visão computacional** | Detecção de objetos via YOLO (armas, facas, granadas, explosivos) em imagens |
+| **Pipeline de detecção** | Detecção paralela automática — YOLO (armas, facas, granadas, explosivos), rostos (InsightFace), placas (YOLO+OCR), transcrição (Whisper) |
+| **Reconhecimento facial** | Detecção, embedding e busca cross-case de rostos com InsightFace |
+| **Extração de placas** | Detecção de placas veiculares com regex Mercosul |
+| **Transcrição de áudio** | ASR com faster-whisper para áudio e vídeo |
 | **Timeline unificada** | Eventos estruturados como espinha dorsal — tudo referenciado a origem |
+| **Playbooks** | Fluxos de investigação executáveis (análise de contatos, temporal, busca de pessoas) |
+| **Watchlists** | Listas globais de monitoramento cross-case |
 | **Auditoria** | Hash-chain append-only para todas as ações relevantes |
-| **Relatórios** | Geração de laudos com cadeia de custódia |
 
 ---
 
@@ -33,19 +45,27 @@ Docker Compose — sem dependência de serviços externos.
 ┌──────────────────────────▼──────────────────────────────────────┐
 │                     sokol-api (FastAPI)                          │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │
-│  │  Auth    │ │  Search  │ │   Chat   │ │  Media   │           │
-│  │  Cases   │ │  Hybrid  │ │  Agent   │ │  Vision  │           │
-│  │ Timeline │ │ pgvector │ │  Tools   │ │  YOLO    │           │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘           │
-└───┬──────────────┬───────────────┬──────────────────────────────┘
-    │              │               │
-    ▼              ▼               ▼
-┌────────┐  ┌───────────┐  ┌──────────────┐
-│Postgres│  │sokol-embed│  │sokol-vision  │
-│  16    │  │  Qwen3    │  │  YOLO v8n    │
-│+pgvec  │  │ Embedding │  │  3 modelos   │
-│+postgis│  └───────────┘  └──────────────┘
-└────────┘
+│  │  Auth    │ │  Search  │ │   Chat   │ │ Pipeline │           │
+│  │  Cases   │ │  Hybrid  │ │  Agent   │ │ YOLO     │           │
+│  │ Timeline │ │ pgvector │ │  Tools   │ │ Faces    │           │
+│  │ Playbooks│ │          │ │          │ │ Plates   │           │
+│  └──────────┘ └──────────┘ └──────────┘ │ ASR      │           │
+│                                          └──────────┘           │
+└───┬──────────┬───────────┬───────────┬───────────┬──────────────┘
+    │          │           │           │           │
+    ▼          ▼           ▼           ▼           ▼
+┌────────┐ ┌─────────┐ ┌────────┐ ┌────────┐ ┌────────┐
+│Postgres│ │sokol-   │ │sokol-  │ │sokol-  │ │sokol-  │
+│  16    │ │embed    │ │vision  │ │face    │ │ocr     │
+│+pgvec  │ │ Qwen3   │ │YOLO v8n│ │Insight │ │Paddle  │
+│+postgis│ │Embedding│ │3 model │ │Face    │ │OCR     │
+└────────┘ └─────────┘ └────────┘ └────────┘ └────────┘
+
+┌────────┐ ┌────────┐
+│sokol-  │ │sokol-  │
+│asr     │ │plate   │
+│Whisper │ │YOLO+OCR│
+└────────┘ └────────┘
 
 ┌──────────────────────────────────────────────────────────────────┐
 │                     LM Studio (host)                             │
@@ -57,12 +77,15 @@ Docker Compose — sem dependência de serviços externos.
 
 | Serviço | Porta | Responsabilidade |
 |---------|-------|-----------------|
-| `sokol-api` | `8000` | API gateway — auth, CRUD, busca, chat, mídia, visão |
+| `sokol-api` | `8000` | API gateway — auth, CRUD, busca, chat, pipeline, playbooks |
 | `sokol-postgres` | `5433` | Banco de dados — pgvector + postgis |
 | `sokol-embed` | `8001` | Serviço de embeddings (API OpenAI-compatible) |
-| `sokol-vision` | `8007` | Detecção de objetos via YOLO |
+| `sokol-vision` | `8007` | Detecção de objetos via YOLO (3 modelos) |
+| `sokol-face` | `8011` | Reconhecimento facial com InsightFace |
+| `sokol-ocr` | `8008` | OCR com PaddleOCR |
+| `sokol-asr` | `8009` | Transcrição de áudio com faster-whisper |
+| `sokol-plate` | `8010` | Detecção de placas veiculares |
 | `sokol-web` | `5173` (dev) / `3000` (prod) | Frontend React + Vite |
-| `sokol-worker` | — | Worker de ingestão e enriquecimento |
 | LM Studio | `1234` | LLM para chat (roda no host) |
 
 ---
@@ -70,19 +93,9 @@ Docker Compose — sem dependência de serviços externos.
 ## Pré-requisitos
 
 - **Docker** e **Docker Compose** v2+
-- **GPU** (opcional mas recomendado) — NVIDIA com CUDA para embeddings e YOLO
+- **GPU** (opcional mas recomendado) — NVIDIA com CUDA para embeddings, YOLO e face
 - **LM Studio** rodando no host com pelo menos um modelo LLM carregado
 - **Git** para clonar o repositório
-
-### GPU
-
-O sistema detecta automaticamente GPUs disponíveis. Para forçar um device:
-
-```bash
-# No .env
-SOKOL_GPU_PRIMARY=cuda:0
-SOKOL_GPU_AUX=cuda:0
-```
 
 ---
 
@@ -116,26 +129,33 @@ docker exec sokol-api alembic upgrade head
 curl http://localhost:8000/health
 ```
 
-Resposta esperada:
-
-```json
-{
-  "status": "ok",
-  "version": "0.1.0",
-  "services": {
-    "postgres": "ok",
-    "lmstudio": "ok"
-  }
-}
-```
-
 ### 5. Acessar o frontend
 
 Abra `http://localhost:3000` no navegador.
 
 **Login padrão:** `admin` / `admin123`
 
-### 6. Parar
+### 6. Ingerir um caso
+
+```bash
+# Copie um arquivo .ufdr para o inbox
+cp caso.ufdr ingest/
+
+# Ingieira via API
+curl -X POST http://localhost:8000/ingest \
+  -H "Authorization: Bearer <token>" \
+  -F "file=@caso.ufdr"
+```
+
+### 7. Rodar pipeline de detecção
+
+Após ingestão, clique em **"Rodar Pipeline"** na aba Mídias para executar em paralelo:
+- Detecção de objetos (YOLO)
+- Reconhecimento facial (InsightFace)
+- Detecção de placas
+- Transcrição de áudio (ASR)
+
+### 8. Parar
 
 ```bash
 cd deploy
@@ -150,17 +170,6 @@ docker compose --env-file ../.env down
 
 Gateway FastAPI com todos os endpoints da aplicação.
 
-```bash
-# Desenvolvimento local
-cd api
-uv sync
-uv run uvicorn src.sokol.main:app --reload --port 8000
-
-# Produção (Docker)
-docker build -t sokol-api -f api/Dockerfile .
-docker run -p 8000:8000 --env-file .env sokol-api
-```
-
 **Endpoints principais:**
 
 | Rota | Método | Descrição |
@@ -174,21 +183,20 @@ docker run -p 8000:8000 --env-file .env sokol-api
 | `/chat/agent` | POST | Chat investigativo com ferramentas |
 | `/media/{case_id}` | GET | Listar mídia do caso |
 | `/media/file/{hash}` | GET | Servir arquivo de mídia |
-| `/vision/{case_id}/detections` | GET | Detecções visuais |
+| `/detect/pipeline/{case_id}` | POST | Lançar pipeline de detecção paralelo |
+| `/detect/status` | GET | Status dos jobs do pipeline |
+| `/faces/{case_id}` | GET | Listar rostos detectados |
+| `/faces/{case_id}/search` | POST | Busca cross-case de rostos |
+| `/playbooks/` | GET/POST | Listar/criar playbooks |
+| `/playbooks/{id}/execute` | POST | Executar playbook |
+| `/plates/{case_id}` | GET | Listar placas detectadas |
+| `/transcriptions/{case_id}` | GET | Listar transcrições (busca full-text) |
+| `/watchlists/` | GET/POST | Watchlists globais |
 | `/ingest` | POST | Ingerir UFDR |
 
 ### Banco de Dados (`db/`)
 
 Postgres 16 com extensões `pgvector` (busca vetorial) e `postgis` (geoespacial).
-
-```bash
-# Rodar migrações
-docker exec sokol-api alembic upgrade head
-
-# Criar nova migração
-cd api
-uv run alembic revision --autogenerate -m "descrição"
-```
 
 **Principais tabelas:**
 
@@ -196,83 +204,31 @@ uv run alembic revision --autogenerate -m "descrição"
 - `events` — Eventos estruturados (espinha da timeline)
 - `messages` — Mensagens extraídas
 - `chunks` — Chunks para busca com embeddings vetoriais
-- `media` — Arquivos de mídia
+- `media` — Arquivos de mídia (hash, mime_type, size_bytes, storage_ref)
 - `entities` — Entidades (pessoas, números, etc.)
 - `artifacts` — Artefatos brutos
-- `image_detections` — Detecções de visão computacional
+- `image_detections` — Detecções YOLO (armas, facas, etc.)
+- `face_embeddings` — Embeddings faciais (InsightFace, 512-dim)
+- `plate_detections` — Placas veiculares detectadas
+- `transcriptions` — Transcrições de áudio (busca full-text)
+- `playbooks` / `playbook_executions` / `playbook_results` — Playbooks investigativos
+- `watchlists` — Listas de monitoramento globais
 - `audit_log` — Log de auditoria com hash-chain
 
-### Worker (`worker/`)
+### Pipeline de Detecção (`api/src/sokol/pipeline.py`)
 
-Worker de ingestão e enriquecimento de dados.
+Executa 4 jobs em paralelo via threads:
 
-```bash
-# Rodar worker
-cd worker
-python -m worker
+1. **YOLO** — Processa imagens em batches de 16, salva em `image_detections`
+2. **Faces** — InsightFace `buffalo_l`, salva embeddings em `face_embeddings`
+3. **Placas** — YOLO + OCR + regex Mercosul, salva em `plate_detections`
+4. **ASR** — faster-whisper com VAD, salva em `transcriptions`
 
-# Ingerir um caso específico
-python -m worker --case-id <uuid>
-```
-
-**Pipeline de ingestão:**
-
-1. **Parsing** — Extrai dados do UFDR (XML → eventos, mensagens, entidades)
-2. **Chunking** — Divide texto em chunks para embedding
-3. **Embedding** — Gera vetores via sokol-embed
-4. **Vision** — Roda detecção YOLO nas imagens
-5. **Indexação** — Salva tudo no Postgres com pgvector
-
-**Parsers disponíveis:** WhatsApp, SMS, Chamadas, Contatos, Localização, Web History, Contratos
-
-### Serviço de Embeddings (`services/embed/`)
-
-Serviço Docker que expõe API OpenAI-compatible para geração de embeddings.
-
-```bash
-# Build
-cd services/embed
-docker build -t sokol-embed .
-
-# Run
-docker run -p 8001:8001 sokol-embed
-```
-
-**Modelo padrão:** `Qwen/Qwen3-Embedding-0.6B` (1024 dimensões)
-
-### Serviço de Visão (`services/vision/`)
-
-Serviço Docker com 3 modelos YOLO para detecção de objetos:
-
-| Modelo | Classes | Uso |
-|--------|---------|-----|
-| **COCO** (yolov8n) | 80 classes padrão | Pessoas, carros, celulares |
-| **Firearm Detection** | Armas de fogo | Detecção de armas |
-| **Threat Detection** | Armas, explosivos, granadas | Triagem de ameaças |
-
-```bash
-# Build
-cd services/vision
-docker build -t sokol-vision .
-
-# Run
-docker run -p 8007:8007 -v ./data/media-cache:/data/media-cache sokol-vision
-```
+Progresso rastreado via SSE (`_job_events`).
 
 ### Frontend (`web/`)
 
 Aplicação React + Vite + TypeScript com interface operacional.
-
-```bash
-# Desenvolvimento
-cd web
-npm install
-npm run dev   # http://localhost:5173
-
-# Build para produção
-npm run build
-# Os arquivos ficam em web/dist/
-```
 
 **Abas disponíveis:**
 
@@ -282,59 +238,42 @@ npm run build
 | Busca | Busca híbrida com filtros por tipo |
 | Chat | Chat investigativo com IA |
 | Dados | Resumo estatístico do caso |
-| Bookmarks | Marcadores do investigador |
-| Watchlists | Alertas de monitoramento |
-| Pendências | Itens que precisam de atenção |
-| Mídia | Visualização de imagens com filtros de detecção |
-| Grafo | Mapa de relações entre entidades |
-| Playbooks | Fluxos de investigação |
+| Mídia | Visualização de imagens + botão "Rodar Pipeline" |
+| Rostos | Rostos detectados, busca cross-case, labeling |
+| Placas | Placas veiculares detectadas |
+| Voz | Transcrições de áudio com busca full-text |
+| Playbooks | Fluxos de investigação executáveis |
 | Relatórios | Geração de laudos |
 | Operação | Status dos serviços |
 
+### Watchlists (`api/src/sokol/watchlists.py`)
+
+Listas globais de monitoramento que funcionam cross-case:
+
+- Pessoas, organizações, placas, telefones, emails, IPs, CNPJ, CPF
+- Endpoint de scan que verifica watchlists contra todos os casos
+- Frontend com criação, edição e resultado de scan
+
+### Playbooks (`api/src/sokol/playbooks.py`)
+
+Fluxos de investigação com ações executáveis:
+
+| Ação | Descrição |
+|------|-----------|
+| `extract_contacts` | Extrai contatos do caso |
+| `map_communications` | Mapeia comunicações (actor/counterpart) |
+| `analyze_patterns` | Analisa padrões por tipo de evento |
+| `extract_timeline` | Extrai timeline completa |
+| `detect_peaks` | Identifica picos de atividade |
+| `search_mentions` | Busca menções a termos |
+| `search_entity` | Busca entidades específicas |
+| `generate_report` | Gera relatório |
+
 ### Dados Sintéticos (`synth/`)
 
-Gerador de UFDR sintético para testes reproduzíveis.
-
 ```bash
-# Gerar corpus sintético
 cd synth
 python -m synth --seed 42 --output ./output
-
-# O output inclui:
-# - report.xml (estrutura UFDR)
-# - files/ (imagens, áudios, vídeos sintéticos)
-# - golden_set.json (ground truth para testes)
-# - synthetic_data.json
-```
-
-### Scripts Operacionais (`ops/`)
-
-| Script | Função |
-|--------|--------|
-| `setup` | Setup inicial — detecta GPU, gera `.env` |
-| `backup.py` | Backup do banco de dados |
-| `extract_media.py` | Extrai imagens de UFDR para cache |
-
-```bash
-# Setup inicial
-cd ops
-./setup
-
-# Backup
-python backup.py --output ./backups/
-
-# Extrair mídia
-python extract_media.py --ufdr /caminho/para/ufdr --output ../data/media-cache/
-```
-
-### Avaliações (`evals/`)
-
-Benchmarks e golden tests para validação do sistema.
-
-```bash
-cd evals
-python bench_embeddings.py        # Benchmark de embeddings
-python generate_corpus_100.py     # Gerar corpus de 100 documentos
 ```
 
 ---
@@ -345,9 +284,6 @@ Copie `deploy/env.example` para `.env` e ajuste:
 
 ```bash
 # Banco de dados
-POSTGRES_DB=sokol
-POSTGRES_USER=sokol
-POSTGRES_PASSWORD=sua_senha
 DATABASE_URL=postgresql://sokol:sua_senha@localhost:5433/sokol
 
 # LM Studio (roda no host)
@@ -355,14 +291,9 @@ SOKOL_LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1
 
 # GPU
 SOKOL_GPU_PRIMARY=auto
-SOKOL_GPU_AUX=auto
 
 # Embedding
 SOKOL_DEFAULT_EMBED_MODEL=Qwen/Qwen3-Embedding-0.6B
-SOKOL_EMBED_DIM=1024
-
-# Vision
-SOKOL_VISION_CONF=0.25
 
 # Auth
 SOKOL_JWT_SECRET=secret_mudar_em_producao
@@ -370,35 +301,11 @@ SOKOL_JWT_SECRET=secret_mudar_em_producao
 
 ---
 
-## Desenvolvimento
-
-### Estrutura do Repositório
-
-```
-sokol/
-├── api/              # FastAPI gateway
-├── worker/           # Ingestão e enriquecimento
-├── services/         # Serviços Docker (embed, vision)
-├── web/              # Frontend React
-├── db/               # Migrações Alembic
-├── deploy/           # Docker Compose
-├── ops/              # Scripts operacionais
-├── synth/            # Gerador sintético
-├── evals/            # Benchmarks e testes
-├── docs/             # ADRs e documentação
-├── config/           # Configurações
-├── ingest/           # Inbox para UFDRs
-└── .scratch/         # Issue tracker local
-```
-
-### Comandos Úteis
+## Comandos Úteis
 
 ```bash
 # Ver logs da API
 docker logs -f sokol-api
-
-# Ver logs do worker
-docker logs -f sokol-worker
 
 # Reconstruir apenas a API
 cd deploy && docker compose up -d --build sokol-api
@@ -408,64 +315,52 @@ docker exec -it sokol-postgres psql -U sokol -d sokol
 
 # Rodar migração
 docker exec sokol-api alembic upgrade head
+
+# Limpar imagens Docker não usadas
+docker image prune -f
 ```
-
-### Testes
-
-```bash
-# Gerar dados sintéticos
-cd synth && python -m synth --seed 42 --output ./output
-
-# Benchmark de embeddings
-cd evals && python bench_embeddings.py
-
-# Testar busca
-curl "http://localhost:8000/search/scan?case_id=<uuid>&q=arma&mode=hybrid"
-```
-
----
-
-## Segurança
-
-- **Nunca** commite arquivos `.env`, credenciais ou evidências forenses
-- O `.gitignore` exclui `data/`, `*.ufdr`, `.env`, caches de modelo
-- Senhas devem ser definidas via variáveis de ambiente
-- Em produção, mude `SOKOL_JWT_SECRET` e `POSTGRES_PASSWORD`
-- Logs de auditoria são append-only com hash-chain para integridade
 
 ---
 
 ## Status
 
-Versão atual: **v0.1.0** (MVP funcional)
+Versão atual: **v0.2.0** (Pipeline + ML services)
 
 ### Implementado
 
-- [x] Stack Docker completa (API, Postgres, Worker, Frontend)
-- [x] Autenticação JWT
-- [x] CRUD de casos
-- [x] Ingestão de UFDR com parsers estruturados
+- [x] Stack Docker completa (API, Postgres, Frontend)
+- [x] Autenticação JWT com Argon2
+- [x] CRUD de casos com RBAC
+- [x] Ingestão de UFDR com parsers estruturados (WhatsApp, SMS, chamadas, contatos, localização, web history)
 - [x] Timeline unificada de eventos
-- [x] Busca híbrida (lexical + semântica)
-- [x] Chat investigativo com ferramentas
-- [x] Serviço de embeddings (sokol-embed)
-- [x] Serviço de visão (sokol-vision) com 3 modelos YOLO
-- [x] Detecção de armas, facas, granadas, explosivos
-- [x] Visualização de mídia com filtros de detecção
-- [x] Frontend React com todas as abas
+- [x] Busca híbrida (lexical + semântica com pgvector)
+- [x] Chat investigativo com ferramentas SQL
+- [x] Serviço de embeddings — Qwen3-Embedding-0.6B
+- [x] Serviço de visão — 3 modelos YOLO (COCO, firearm, threat)
+- [x] Serviço de face — InsightFace buffalo_l (512-dim)
+- [x] Serviço de OCR — PaddleOCR
+- [x] Serviço de ASR — faster-whisper com VAD
+- [x] Serviço de placas — YOLO + OCR + regex Mercosul
+- [x] Pipeline de detecção paralelo (4 jobs simultâneos)
+- [x] Reconhecimento facial com busca cross-case
+- [x] Watchlists globais (10 tipos de entidades)
+- [x] Playbooks investigativos (10+ ações executáveis)
+- [x] Frontend React com 12 abas operacionais
+- [x] Logo SOKOL no login e sidebar
 - [x] Gerador de dados sintéticos
 - [x] Scripts de backup e setup
+- [x] Auditoria com hash-chain
 
 ### Pendente
 
-- [ ] Embedding de chunks na ingestão (só eventos por enquanto)
-- [ ] Reconhecimento facial (InsightFace)
-- [ ] OCR otimizado para documentos
-- [ ] ASR para áudio/vídeo
-- [ ] Extração de placas veiculares
+- [ ] Worker de ingestão em container Docker
+- [ ] Reranking de resultados de busca
 - [ ] Relatórios PDF com cadeia de custódia
 - [ ] Export de casos
-- [ ] Backup automatizado
+- [ ] Backup automatizado via UI
+- [ ] Testes E2E com Playwright
+- [ ] Observabilidade (/ops page)
+- [ ] Pendências UI — workflow de revisão de faces e placas
 
 ---
 

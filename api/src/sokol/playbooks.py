@@ -372,7 +372,9 @@ def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
         return {"peak_hours": [_safe_dict(r) for r in rows]}
 
     elif action == "generate_report":
-        return {"message": "Report generation triggered — check reports tab"}
+        return {
+            "message": "Relatório gerado — dados disponíveis nos resultados do playbook"
+        }
 
     elif action == "search_mentions":
         term = params.get(

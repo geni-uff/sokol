@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
-import { Shield } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardContent } from '@/components/ui/Card'
@@ -41,11 +40,8 @@ export default function Login() {
 
       <div className="relative z-10 w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-surface-elevated">
-            <Shield className="h-5 w-5 text-foreground" />
-          </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">SOKOL</h1>
-          <p className="mt-1.5 text-sm text-muted">Plataforma de Inteligência Forense</p>
+          <img src="/logo_sokol.png" alt="SOKOL" className="mb-4 h-64 max-w-none" />
+          <p className="mt-1.5 text-sm text-muted">Plataforma de Análise e Investigação Forense</p>
         </div>
 
         <Card>

@@ -1,4 +1,5 @@
 """SOKOL ingest — inbox listing, import to staging with SHA-256, progress SSE."""
+
 from __future__ import annotations
 
 import hashlib
@@ -38,7 +39,7 @@ class InboxFile(BaseModel):
 class IngestRequest(BaseModel):
     case_id: UUID
     source_type: str  # "ufdr", "pdf", "image", etc.
-    inbox_ref: str    # relative path inside inbox
+    inbox_ref: str  # relative path inside inbox
 
 
 class IngestResponse(BaseModel):
@@ -74,11 +75,13 @@ def list_inbox(user: CurrentUser = Depends(get_current_user)):
     for entry in sorted(inbox.iterdir()):
         if entry.name.startswith("."):
             continue
-        files.append(InboxFile(
-            name=entry.name,
-            size=entry.stat().st_size if entry.is_file() else 0,
-            is_dir=entry.is_dir(),
-        ))
+        files.append(
+            InboxFile(
+                name=entry.name,
+                size=entry.stat().st_size if entry.is_file() else 0,
+                is_dir=entry.is_dir(),
+            )
+        )
     return files
 
 
@@ -92,7 +95,9 @@ async def start_ingest(
     source = inbox / inbox_ref
 
     if not source.exists():
-        raise HTTPException(status_code=404, detail=f"File not found in inbox: {inbox_ref}")
+        raise HTTPException(
+            status_code=404, detail=f"File not found in inbox: {inbox_ref}"
+        )
     if not source.is_file():
         raise HTTPException(status_code=400, detail="inbox_ref must point to a file")
 
@@ -110,14 +115,21 @@ async def start_ingest(
                 INSERT INTO documents (id, case_id, title, source_type, source_uri, sha256, status, created_at)
                 VALUES (:id, :cid, :title, :stype, :uri, :sha, 'importing', :now)
             """),
-            {"id": doc_id, "cid": body.case_id, "title": inbox_ref, "stype": body.source_type,
-             "uri": f"inbox:{inbox_ref}", "sha": file_hash, "now": now},
+            {
+                "id": doc_id,
+                "cid": body.case_id,
+                "title": inbox_ref,
+                "stype": body.source_type,
+                "uri": f"inbox:{inbox_ref}",
+                "sha": file_hash,
+                "now": now,
+            },
         )
 
         # Copy to staging
         staging = _staging_dir()
         staging.mkdir(parents=True, exist_ok=True)
-        staging_file = staging / f"{doc_id}_{inbox_ref}"
+        staging_file = staging / f"{doc_id}_{source.name}"
         shutil.copy2(source, staging_file)
 
         # Create job
@@ -127,7 +139,12 @@ async def start_ingest(
                 INSERT INTO jobs (id, case_id, kind, payload, status, pipeline_version, created_at, updated_at)
                 VALUES (:id, :cid, 'ingest', :payload, 'pending', 'v1', :now, :now)
             """),
-            {"id": job_id, "cid": body.case_id, "payload": f'{{"document_id":"{doc_id}","staging_path":"{staging_file}"}}', "now": now},
+            {
+                "id": job_id,
+                "cid": body.case_id,
+                "payload": f'{{"document_id":"{doc_id}","staging_path":"{staging_file}"}}',
+                "now": now,
+            },
         )
 
         # Audit
@@ -137,9 +154,14 @@ async def start_ingest(
                 INSERT INTO audit_log (id, case_id, actor_user_id, action, payload, hash, created_at)
                 VALUES (:id, :cid, :actor, 'ingest.started', :payload, :hash, :now)
             """),
-            {"id": audit_id, "cid": body.case_id, "actor": user.user_id,
-             "payload": f'{{"document_id":"{doc_id}","inbox_ref":"{inbox_ref}","sha256":"{file_hash}"}}',
-             "hash": hashlib.sha256(f"{doc_id}{file_hash}".encode()).hexdigest(), "now": now},
+            {
+                "id": audit_id,
+                "cid": body.case_id,
+                "actor": user.user_id,
+                "payload": f'{{"document_id":"{doc_id}","inbox_ref":"{inbox_ref}","sha256":"{file_hash}"}}',
+                "hash": hashlib.sha256(f"{doc_id}{file_hash}".encode()).hexdigest(),
+                "now": now,
+            },
         )
 
         db.commit()

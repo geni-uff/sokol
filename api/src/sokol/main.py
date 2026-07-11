@@ -41,6 +41,7 @@ from .faces import router as faces_router
 from .pipeline import router as pipeline_router
 from .plates_transcriptions import plates_router as plates_router_mod
 from .plates_transcriptions import transcriptions_router as transcriptions_router_mod
+from .ocr_results import router as ocr_router
 
 app.include_router(cases_router)
 app.include_router(jobs_router)
@@ -61,6 +62,7 @@ app.include_router(faces_router)
 app.include_router(pipeline_router)
 app.include_router(plates_router_mod)
 app.include_router(transcriptions_router_mod)
+app.include_router(ocr_router)
 
 
 # ── Auth endpoints ────────────────────────────────────────────────────────
