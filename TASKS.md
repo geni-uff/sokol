@@ -11,7 +11,7 @@
 ### TASK-001: Debug — Validar caso vazio/membership
 **Prioridade:** 🔴 P0 (Blocker)  
 **Esforço:** 15 min  
-**Status:** ⏳ Pendente  
+**Status:** ✅ COMPLETA  
 **Descrição:** Executar queries para validar por que apenas 411 mídias aparecem
 
 **Checklist:**
@@ -29,7 +29,7 @@
 ### TASK-002: Debug — Validar geolocalizações
 **Prioridade:** 🔴 P0 (Blocker)  
 **Esforço:** 10 min  
-**Status:** ⏳ Pendente  
+**Status:** ✅ COMPLETA  
 **Descrição:** Verificar se há dados de localização no DB
 
 **Checklist:**
@@ -47,7 +47,7 @@
 ### TASK-003: Test — Media endpoints com case_id validation
 **Prioridade:** 🔴 P0 (Security)  
 **Esforço:** 20 min  
-**Status:** ⏳ Pendente  
+**Status:** ✅ COMPLETA  
 **Descrição:** Verificar que endpoints /media/file, /media/thumbnail, /media/info agora requerem case_id
 
 **Checklist:**
@@ -66,7 +66,7 @@
 ### TASK-004: Fix — Remover query duplicada em timeline.py
 **Prioridade:** 🔴 P0 (Performance)  
 **Esforço:** 5 min  
-**Status:** ⏳ Pendente  
+**Status:** ✅ COMPLETA  
 **Descrição:** Linhas 166-182 em api/src/sokol/timeline.py fazem queries repetidas
 
 **Checklist:**

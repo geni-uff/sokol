@@ -9,9 +9,6 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/cn'
 
-const INPUT_CLASS =
-  'h-11 rounded-lg border border-border bg-surface-elevated px-4 text-sm text-foreground placeholder:text-dim transition-colors duration-150 hover:border-border-hover focus:border-border-hover focus:outline-none focus:ring-1 focus:ring-white/10 disabled:opacity-50'
-const SELECT_CLASS = INPUT_CLASS + ' py-0'
 
 function LeafletMap({ geoEvents }: { geoEvents: GeoEvent[] }) {
   const mapRef = useRef<HTMLDivElement>(null)
@@ -239,7 +236,18 @@ export function MapTab({ caseId }: { caseId: string }) {
                 setKindFilter(e.target.value)
                 setPage(0)
               }}
-              className={SELECT_CLASS}
+              style={{
+                height: '2.75rem',
+                borderRadius: '0.5rem',
+                border: '1px solid #262626',
+                backgroundColor: '#141414',
+                paddingLeft: '1rem',
+                paddingRight: '1rem',
+                fontSize: '0.875rem',
+                color: '#ededed',
+                paddingTop: 0,
+                paddingBottom: 0,
+              }}
             >
               <option value="">Todos os eventos</option>
               <option value="message">Mensagens</option>
