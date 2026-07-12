@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/Badge'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/cn'
+import 'leaflet/dist/leaflet.css'
 
 
 function LeafletMap({ geoEvents }: { geoEvents: GeoEvent[] }) {
@@ -21,6 +22,14 @@ function LeafletMap({ geoEvents }: { geoEvents: GeoEvent[] }) {
 
     const initMap = async () => {
       L = await import('leaflet')
+
+      // Bundlers break Leaflet's internal URL resolution for default marker icons
+      delete (L.Icon.Default.prototype as Record<string, unknown>)._getIconUrl
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+      })
 
       if (mapInstanceRef.current) {
         ;(mapInstanceRef.current as { remove: () => void }).remove()
