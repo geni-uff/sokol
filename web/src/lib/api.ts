@@ -663,3 +663,67 @@ export async function apiCrossCase(
   }
   return res.json()
 }
+
+// ── Entity Resolution ───────────────────────────────────────────────────
+
+export interface ResolutionSuggestion {
+  entity_a: string
+  entity_b: string
+  kind_a: string
+  kind_b: string
+  display_a: string | null
+  display_b: string | null
+  reason: string
+  confidence: number
+  indicator_note: string
+}
+
+export interface ResolveSuggestionsResponse {
+  case_id: string
+  suggestions: ResolutionSuggestion[]
+  total: number
+}
+
+export async function apiSuggestResolutions(caseId: string): Promise<ResolveSuggestionsResponse> {
+  const res = await fetch(`${API_BASE}/entities/resolve?case_id=${caseId}`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail ?? `Error ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function apiConfirmResolution(
+  entityId: string,
+  identityId: string,
+): Promise<{ link_id: string; status: string }> {
+  const res = await fetch(`${API_BASE}/entities/${entityId}/resolve-to`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identity_id: identityId, confirmed_by_user: true }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail ?? `Error ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function apiRejectResolution(
+  entityAId: string,
+  entityBId: string,
+): Promise<{ status: string }> {
+  const res = await fetch(`${API_BASE}/entities/${entityAId}/reject-resolution`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entity_b_id: entityBId }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail ?? `Error ${res.status}`)
+  }
+  return res.json()
+}

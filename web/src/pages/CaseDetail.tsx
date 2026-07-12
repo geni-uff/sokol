@@ -54,6 +54,7 @@ import {
   Image,
   Scan,
   GitMerge,
+  Users,
   Crosshair,
   Sword,
   Bomb,
@@ -79,6 +80,7 @@ import { FacesTab } from '@/components/case/FacesTab'
 import { OCRTab } from '@/components/case/OCRTab'
 import { ReportsTab } from '@/components/case/ReportsTab'
 import { CrossCaseTab } from '@/components/case/CrossCaseTab'
+import { EntityResolutionTab } from '@/components/case/EntityResolutionTab'
 
 const NAV_ITEMS = [
   { icon: BarChart3, label: 'Timeline', id: 'timeline' },
@@ -97,6 +99,7 @@ const NAV_ITEMS = [
   { icon: Play, label: 'Playbooks', id: 'playbooks' },
   { icon: FileText, label: 'Relatórios', id: 'reports' },
   { icon: GitMerge, label: 'Análise Cruzada', id: 'cross-case' },
+  { icon: Users, label: 'Identidades', id: 'entity-resolution' },
   { icon: Settings, label: 'Operação', id: 'ops' },
 ]
 
@@ -259,6 +262,7 @@ export default function CaseDetail() {
       {activeTab === 'playbooks' && <PlaybooksTab caseId={caseId!} />}
       {activeTab === 'reports' && <ReportsTab caseId={caseId!} />}
       {activeTab === 'cross-case' && <CrossCaseTab caseId={caseId!} />}
+      {activeTab === 'entity-resolution' && <EntityResolutionTab caseId={caseId!} />}
       {activeTab === 'ops' && <OpsTab />}
     </AppShell>
   )

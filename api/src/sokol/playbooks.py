@@ -423,6 +423,44 @@ def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
             "entity": entity,
         }
 
+    elif action == "extract_locations":
+        rows = db.execute(
+            text("""
+                SELECT e.id, e.ts, e.summary,
+                       ST_Y(e.geo::geometry) AS lat,
+                       ST_X(e.geo::geometry) AS lon,
+                       e.meta
+                FROM events e
+                WHERE e.case_id = :cid
+                  AND e.geo IS NOT NULL
+                ORDER BY e.ts
+                LIMIT 500
+            """),
+            {"cid": case_id},
+        ).fetchall()
+        return {"locations": [_safe_dict(r) for r in rows], "count": len(rows)}
+
+    elif action == "activity_heatmap":
+        # Hour-of-day × day-of-week using case timezone
+        tz = params.get("timezone", "America/Sao_Paulo")
+        rows = db.execute(
+            text("""
+                SELECT
+                    EXTRACT(DOW FROM ts AT TIME ZONE :tz)::int AS dow,
+                    EXTRACT(HOUR FROM ts AT TIME ZONE :tz)::int AS hour,
+                    COUNT(*) AS count
+                FROM events
+                WHERE case_id = :cid AND ts IS NOT NULL
+                GROUP BY dow, hour
+                ORDER BY dow, hour
+            """),
+            {"cid": case_id, "tz": tz},
+        ).fetchall()
+        cells = [{"dow": r[0], "hour": r[1], "count": r[2]} for r in rows]
+        total = sum(r[2] for r in rows)
+        peak = max(cells, key=lambda x: x["count"]) if cells else {}
+        return {"heatmap": cells, "total_events": total, "peak_cell": peak}
+
     else:
         return {"message": f"Unknown action: {action}", "params": params}
 
@@ -497,6 +535,72 @@ def get_execution_results(execution_id: str):
 
 # ── Built-in Playbook Templates ──────────────────────────────────────────
 BUILTIN_TEMPLATES = [
+    {
+        "name": "Padrão de Comunicação",
+        "description": "Quem falou com quem: volume por contato, horários típicos, apps usados e gaps de silêncio",
+        "category": "communication",
+        "steps": [
+            PlaybookStep(
+                id="1",
+                name="Mapear comunicações",
+                description="Top contatos por volume de mensagens e chamadas",
+                action="map_communications",
+                auto=True,
+            ),
+            PlaybookStep(
+                id="2",
+                name="Identificar horários típicos",
+                description="Picos de atividade por hora do dia",
+                action="detect_peaks",
+                depends_on=["1"],
+                auto=True,
+            ),
+            PlaybookStep(
+                id="3",
+                name="Distribuição por canal",
+                description="Quais apps/tipos de evento dominam",
+                action="analyze_patterns",
+                depends_on=["2"],
+                auto=True,
+            ),
+            PlaybookStep(
+                id="4",
+                name="Relatório de padrão",
+                action="generate_report",
+                depends_on=["3"],
+                auto=False,
+            ),
+        ],
+    },
+    {
+        "name": "Rastreamento de Localização",
+        "description": "Sequência de localizações, distância percorrida e locais recorrentes",
+        "category": "location",
+        "steps": [
+            PlaybookStep(
+                id="1",
+                name="Extrair pontos GPS",
+                description="Todos os eventos com coordenadas geográficas",
+                action="extract_locations",
+                auto=True,
+            ),
+            PlaybookStep(
+                id="2",
+                name="Picos de deslocamento",
+                description="Horas com maior concentração de movimentação",
+                action="detect_peaks",
+                depends_on=["1"],
+                auto=True,
+            ),
+            PlaybookStep(
+                id="3",
+                name="Relatório de localização",
+                action="generate_report",
+                depends_on=["2"],
+                auto=False,
+            ),
+        ],
+    },
     {
         "name": "Análise de Contatos",
         "description": "Analisa todos os contatos e comunicações do caso",
