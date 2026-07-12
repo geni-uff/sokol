@@ -324,7 +324,7 @@ docker image prune -f
 
 ## Status
 
-Versão atual: **v0.2.0** (Pipeline + ML services)
+Versão atual: **v0.3.0** (Worker Docker + Relatórios + Observabilidade)
 
 ### Implementado
 
@@ -350,17 +350,26 @@ Versão atual: **v0.2.0** (Pipeline + ML services)
 - [x] Gerador de dados sintéticos
 - [x] Scripts de backup e setup
 - [x] Auditoria com hash-chain
+- [x] Worker de ingestão em container Docker (fila Redis, `/ingest/batch`)
+- [x] Reranking de resultados de busca
+- [x] Relatórios HTML por caso
+- [x] Export de casos (ZIP)
+- [x] Testes E2E com Playwright (auth, cases)
+- [x] Observabilidade — dashboard de métricas do sistema
+- [x] UX de revisão de detecções (faces e placas)
+- [x] Filtros de período/app na timeline, eventos próximos e rota no mapa
 
-### Pendente
+### Pendente (backlog em `.scratch/sokol-v2/`)
 
-- [ ] Worker de ingestão em container Docker
-- [ ] Reranking de resultados de busca
-- [ ] Relatórios PDF com cadeia de custódia
-- [ ] Export de casos
-- [ ] Backup automatizado via UI
-- [ ] Testes E2E com Playwright
-- [ ] Observabilidade (/ops page)
-- [ ] Pendências UI — workflow de revisão de faces e placas
+- [ ] Análise cross-case (contatos/locais compartilhados entre casos, com auditoria)
+- [ ] Resolução de entidades (mesma pessoa em múltiplos casos, não-destrutiva)
+- [ ] Biblioteca de playbooks prontos para produção (4 templates)
+- [ ] Heatmaps forenses (atividade, localização, contatos)
+- [ ] Detecção de anomalias na timeline (saltos impossíveis, horários atípicos)
+- [ ] Relatórios PDF reais com gráficos e cadeia de custódia (hoje: HTML)
+- [ ] Backup real via API (hoje: stub)
+- [ ] Exports em massa (CSV/VCard/KML)
+- [ ] Comentários e anotações internas em casos e eventos
 
 ---
 
