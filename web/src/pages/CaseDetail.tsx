@@ -84,6 +84,7 @@ import { ReportsTab } from '@/components/case/ReportsTab'
 import { CrossCaseTab } from '@/components/case/CrossCaseTab'
 import { EntityResolutionTab } from '@/components/case/EntityResolutionTab'
 import { ConversasTab } from '@/components/case/ConversasTab'
+import { AnalyticsTab } from '@/components/case/AnalyticsTab'
 
 const NAV_ITEMS = [
   { icon: BarChart3, label: 'Timeline', id: 'timeline' },
@@ -99,6 +100,7 @@ const NAV_ITEMS = [
   { icon: Car, label: 'Placas', id: 'plates' },
   { icon: Mic, label: 'Voz', id: 'transcriptions' },
   { icon: FileSearch, label: 'OCR', id: 'ocr' },
+  { icon: BarChart3, label: 'Analytics', id: 'analytics' },
   { icon: GitBranch, label: 'Grafo', id: 'graph' },
   { icon: Play, label: 'Playbooks', id: 'playbooks' },
   { icon: FileText, label: 'Relatórios', id: 'reports' },
@@ -263,6 +265,7 @@ export default function CaseDetail() {
       {activeTab === 'plates' && <PlatesTab caseId={caseId!} />}
       {activeTab === 'transcriptions' && <TranscriptionsTab caseId={caseId!} />}
       {activeTab === 'ocr' && <OCRTab caseId={caseId!} />}
+      {activeTab === 'analytics' && <AnalyticsTab caseId={caseId!} />}
       {activeTab === 'graph' && <GraphTab caseId={caseId!} />}
       {activeTab === 'playbooks' && <PlaybooksTab caseId={caseId!} />}
       {activeTab === 'reports' && <ReportsTab caseId={caseId!} />}

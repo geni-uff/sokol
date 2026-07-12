@@ -186,9 +186,11 @@ class IngestWorker:
             # For now, mark as ready for pipeline
             self._update_progress(job_id, "completed", 100.0, f"Ingest completed: {inbox_ref}")
             logger.info(f"[{job_id}] ✅ Ingest completed successfully")
-            # Invalidate cached stats so next /events/stats reflects new data.
+            # Invalidate cached stats/analytics so next reads reflect new data.
             try:
                 self.redis_client.delete(f"sokol:stats:{case_id}")
+                for key in self.redis_client.scan_iter(f"sokol:analytics:{case_id}:*"):
+                    self.redis_client.delete(key)
             except Exception:
                 pass
 

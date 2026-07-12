@@ -803,3 +803,62 @@ export async function apiListMessages(
   if (!res.ok) return { messages: [], total: 0, case_id: caseId }
   return res.json()
 }
+
+// ── Analytics (heatmaps, contact frequency) ─────────────────────────────
+
+export interface HeatmapCell {
+  dow: number
+  hour: number
+  count: number
+}
+
+export interface ActivityHeatmap {
+  case_id: string
+  timezone: string
+  cells: HeatmapCell[]
+  total_events: number
+}
+
+export interface LocationCell {
+  lat: number
+  lon: number
+  count: number
+}
+
+export interface LocationHeatmap {
+  case_id: string
+  points: LocationCell[]
+  total: number
+}
+
+export interface MonthCount {
+  month: string
+  count: number
+}
+
+export interface ContactFrequency {
+  counterpart: string
+  total: number
+  kinds: Record<string, number>
+  monthly: MonthCount[]
+}
+
+export async function apiActivityHeatmap(caseId: string, kind?: string): Promise<ActivityHeatmap> {
+  const params = kind ? `?kind=${kind}` : ''
+  const res = await fetch(`${API_BASE}/analytics/${caseId}/activity-heatmap${params}`, { headers: authHeaders() })
+  if (!res.ok) return { case_id: caseId, timezone: '', cells: [], total_events: 0 }
+  return res.json()
+}
+
+export async function apiLocationHeatmap(caseId: string): Promise<LocationHeatmap> {
+  const res = await fetch(`${API_BASE}/analytics/${caseId}/location-heatmap`, { headers: authHeaders() })
+  if (!res.ok) return { case_id: caseId, points: [], total: 0 }
+  return res.json()
+}
+
+export async function apiContactFrequency(caseId: string, top = 15): Promise<ContactFrequency[]> {
+  const res = await fetch(`${API_BASE}/analytics/${caseId}/contact-frequency?top=${top}`, { headers: authHeaders() })
+  if (!res.ok) return []
+  const data = await res.json()
+  return data.contacts ?? []
+}
