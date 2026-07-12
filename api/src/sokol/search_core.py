@@ -210,18 +210,40 @@ def _rrf_fusion(
 def _rerank(
     query: str, results: list[SearchResult], top_n: int = 10
 ) -> list[SearchResult]:
-    """Rerank results using the active reranker model."""
+    """Rerank results by relevance score combination and query matching."""
     if not results:
         return results
 
-    try:
-        import os
+    import re
 
-        # For v1, use a simple score-based truncation
-        # TODO: integrate reranker service when available
-        return results[:top_n]
-    except Exception:
-        return results[:top_n]
+    # Normalize query for matching
+    query_terms = set(re.findall(r'\b\w+\b', query.lower()))
+    query_pattern = re.compile(r'\b' + '|'.join(re.escape(t) for t in query_terms) + r'\b', re.IGNORECASE)
+
+    # Rerank with improved scoring
+    reranked = []
+    for result in results:
+        # Start with base score (normalized 0-1)
+        base_score = min(result.score, 1.0)
+
+        # Boost for exact term matches in text
+        text_matches = len(query_pattern.findall(result.text))
+        match_boost = min(text_matches * 0.1, 0.3)
+
+        # Boost for query in source (higher relevance)
+        source_boost = 0.2 if result.source_type == "exact" else (0.1 if result.source_type == "lexical" else 0.05)
+
+        # Combined score
+        final_score = base_score + match_boost + source_boost
+
+        # Update result with new score
+        result.score = final_score
+        reranked.append(result)
+
+    # Sort by reranked score
+    reranked.sort(key=lambda r: r.score, reverse=True)
+
+    return reranked[:top_n]
 
 
 def search_hybrid(
