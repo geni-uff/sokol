@@ -331,9 +331,21 @@ interface MediaItem {
   usage_count: number
 }
 
-export async function apiListMedia(caseId: string): Promise<MediaItem[]> {
-  const res = await fetch(`${API_BASE}/media/${caseId}`, { headers: authHeaders() })
-  if (!res.ok) return []
+export interface MediaListResponse {
+  items: MediaItem[]
+  total: number
+}
+
+export async function apiListMedia(
+  caseId: string,
+  opts?: { limit?: number; offset?: number; mimeType?: string },
+): Promise<MediaListResponse> {
+  const params = new URLSearchParams()
+  if (opts?.limit) params.set('limit', String(opts.limit))
+  if (opts?.offset) params.set('offset', String(opts.offset))
+  if (opts?.mimeType) params.set('mime_type', opts.mimeType)
+  const res = await fetch(`${API_BASE}/media/${caseId}?${params}`, { headers: authHeaders() })
+  if (!res.ok) return { items: [], total: 0 }
   return res.json()
 }
 
@@ -574,6 +586,7 @@ export interface OCRResult {
   id: string
   case_id: string
   media_hash: string
+  mime_type: string | null
   text: string
   confidence: number | null
   language: string | null
@@ -725,5 +738,68 @@ export async function apiRejectResolution(
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail ?? `Error ${res.status}`)
   }
+  return res.json()
+}
+
+// ── Conversations / Messages ────────────────────────────────────────────
+
+export function getMediaUrl(hash: string, caseId: string): string {
+  const token = getToken()
+  return `${API_BASE}/media/file/${hash}?case_id=${caseId}${token ? `&token=${token}` : ''}`
+}
+
+export function getThumbnailUrl(hash: string, caseId: string): string {
+  const token = getToken()
+  return `${API_BASE}/media/thumbnail/${hash}?case_id=${caseId}${token ? `&token=${token}` : ''}`
+}
+
+export interface ChatSummary {
+  chat_id: string | null
+  app: string | null
+  participant: string | null
+  message_count: number
+  first_ts: string | null
+  last_ts: string | null
+}
+
+export interface MessageItem {
+  id: string
+  app: string | null
+  chat_id: string | null
+  sender: string | null
+  counterpart: string | null
+  ts: string | null
+  direction: string | null
+  text: string | null
+  media_hash: string | null
+  is_forwarded: boolean | null
+}
+
+export interface MessagesResponse {
+  messages: MessageItem[]
+  total: number
+  case_id: string
+}
+
+export async function apiListChats(caseId: string, app?: string): Promise<ChatSummary[]> {
+  const params = new URLSearchParams({ case_id: caseId })
+  if (app) params.set('app', app)
+  const res = await fetch(`${API_BASE}/conversations/chats?${params}`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function apiListMessages(
+  caseId: string,
+  opts?: { app?: string; chatId?: string; q?: string; limit?: number; offset?: number },
+): Promise<MessagesResponse> {
+  const params = new URLSearchParams({ case_id: caseId })
+  if (opts?.app) params.set('app', opts.app)
+  if (opts?.chatId) params.set('chat_id', opts.chatId)
+  if (opts?.q) params.set('q', opts.q)
+  if (opts?.limit) params.set('limit', String(opts.limit))
+  if (opts?.offset) params.set('offset', String(opts.offset))
+  const res = await fetch(`${API_BASE}/conversations/messages?${params}`, { headers: authHeaders() })
+  if (!res.ok) return { messages: [], total: 0, case_id: caseId }
   return res.json()
 }

@@ -52,6 +52,7 @@ from .case_export import router as export_router
 from .case_backup import router as backup_router
 from .cross_case import router as cross_case_router
 from .entity_resolution import router as entity_resolution_router
+from .conversations import router as conversations_router
 
 app.include_router(cases_router)
 app.include_router(jobs_router)
@@ -78,6 +79,7 @@ app.include_router(export_router)
 app.include_router(backup_router)
 app.include_router(cross_case_router)
 app.include_router(entity_resolution_router)
+app.include_router(conversations_router)
 
 
 # ── Auth endpoints ────────────────────────────────────────────────────────

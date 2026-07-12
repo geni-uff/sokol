@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { apiListOCR, type OCRResult } from '@/lib/api'
+import { apiListOCR, getMediaUrl } from '@/lib/api'
 import { useState } from 'react'
 import { FileText, Loader2, Camera } from 'lucide-react'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -11,12 +11,34 @@ import { cn } from '@/lib/cn'
 const INPUT_CLASS =
   'h-11 rounded-lg border border-border bg-surface-elevated px-4 text-sm text-foreground placeholder:text-dim transition-colors duration-150 hover:border-border-hover focus:border-border-hover focus:outline-none focus:ring-1 focus:ring-white/10 disabled:opacity-50'
 
-function MediaThumbnail({ hash, caseId }: { hash: string; caseId: string }) {
+function MediaThumbnail({
+  hash,
+  caseId,
+  mimeType,
+}: {
+  hash: string
+  caseId: string
+  mimeType?: string | null
+}) {
   const [failed, setFailed] = useState(false)
+  const url = getMediaUrl(hash, caseId)
+
   if (failed) return <Camera className="h-8 w-8 text-dim" />
+
+  if (mimeType === 'application/pdf') {
+    return (
+      <iframe
+        src={url}
+        title="PDF"
+        className="h-full w-full"
+        style={{ border: 'none', backgroundColor: '#fff', minHeight: '160px' }}
+      />
+    )
+  }
+
   return (
     <img
-      src={`/api/media/file/${hash}?case_id=${caseId}`}
+      src={url}
       alt="Documento"
       className="h-full w-full object-contain"
       loading="lazy"
@@ -67,7 +89,7 @@ export function OCRTab({ caseId }: { caseId: string }) {
             <Card key={r.id} className="overflow-hidden hover:border-border-hover">
               <div className="flex">
                 <div className="hidden w-32 shrink-0 items-center justify-center bg-surface-elevated sm:flex">
-                  <MediaThumbnail hash={r.media_hash} caseId={caseId} />
+                  <MediaThumbnail hash={r.media_hash} caseId={caseId} mimeType={r.mime_type} />
                 </div>
                 <CardContent className="flex-1 py-4">
                   <div className="mb-2 flex items-center gap-2">

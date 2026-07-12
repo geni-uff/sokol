@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from uuid import UUID
 
-from .auth import CurrentUser, get_current_user, require_case_member
+from .auth import CurrentUser, get_current_user, get_media_user, require_case_member
 from .db import get_session_factory
 
 router = APIRouter(prefix="/media", tags=["media"])
@@ -39,21 +39,26 @@ class MediaListItem(BaseModel):
     usage_count: int
 
 
+class MediaListResponse(BaseModel):
+    items: list[MediaListItem]
+    total: int
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────
-@router.get("/{case_id}", response_model=list[MediaListItem])
+@router.get("/{case_id}", response_model=MediaListResponse)
 def list_media(
-    case_id: str, mime_type: Optional[str] = None, limit: int = Query(100, ge=1, le=500)
+    case_id: UUID,
+    mime_type: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """List media files used in a case — from messages AND artifacts."""
     factory = get_session_factory()
     with factory() as db:
-        query = """
-            SELECT
-                m.hash,
-                m.mime_type,
-                m.size_bytes,
-                m.thumbnail_ref IS NOT NULL as thumbnail_available,
-                COALESCE(msg_count, 0) + COALESCE(art_count, 0) as usage_count
+        require_case_member(db, case_id, user.user_id)
+
+        base = """
             FROM media m
             LEFT JOIN (
                 SELECT media_hash, COUNT(*) as msg_count
@@ -69,33 +74,50 @@ def list_media(
             ) art ON art.media_hash = m.hash
             WHERE (msg.msg_count IS NOT NULL OR art.art_count IS NOT NULL)
         """
-        params = {"case_id": case_id, "limit": limit}
+        params = {"case_id": case_id, "limit": limit, "offset": offset}
 
         if mime_type:
-            query += " AND m.mime_type LIKE :mime_type"
+            base += " AND m.mime_type LIKE :mime_type"
             params["mime_type"] = f"{mime_type}%"
 
-        query += " ORDER BY usage_count DESC LIMIT :limit"
+        total = db.execute(text("SELECT COUNT(*) " + base), params).scalar()
 
-        rows = db.execute(text(query), params).fetchall()
+        rows = db.execute(
+            text(
+                """
+                SELECT
+                    m.hash,
+                    m.mime_type,
+                    m.size_bytes,
+                    m.thumbnail_ref IS NOT NULL as thumbnail_available,
+                    COALESCE(msg_count, 0) + COALESCE(art_count, 0) as usage_count
+                """
+                + base
+                + " ORDER BY usage_count DESC, m.hash LIMIT :limit OFFSET :offset"
+            ),
+            params,
+        ).fetchall()
 
-        return [
-            MediaListItem(
-                hash=r[0],
-                mime_type=r[1],
-                size_bytes=r[2],
-                thumbnail_available=r[3],
-                usage_count=r[4],
-            )
-            for r in rows
-        ]
+        return MediaListResponse(
+            items=[
+                MediaListItem(
+                    hash=r[0],
+                    mime_type=r[1],
+                    size_bytes=r[2],
+                    thumbnail_available=r[3],
+                    usage_count=r[4],
+                )
+                for r in rows
+            ],
+            total=total,
+        )
 
 
 @router.get("/file/{media_hash}")
 def get_media_file(
     media_hash: str,
     case_id: UUID = Query(...),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_media_user),
 ):
     """Get media file by hash — only if linked to case."""
     factory = get_session_factory()
@@ -169,7 +191,7 @@ def get_media_file(
 def get_media_thumbnail(
     media_hash: str,
     case_id: UUID = Query(...),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_media_user),
 ):
     """Get media thumbnail by hash — only if linked to case."""
     factory = get_session_factory()

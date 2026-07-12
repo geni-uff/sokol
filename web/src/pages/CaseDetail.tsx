@@ -21,6 +21,7 @@ import {
   apiDetectionStats,
   apiMediaWithDetections,
   apiGenerateReport,
+  getMediaUrl,
   type SearchResult,
   type CaseStats,
   type PlateDetection,
@@ -55,6 +56,7 @@ import {
   Scan,
   GitMerge,
   Users,
+  MessagesSquare,
   Crosshair,
   Sword,
   Bomb,
@@ -81,11 +83,13 @@ import { OCRTab } from '@/components/case/OCRTab'
 import { ReportsTab } from '@/components/case/ReportsTab'
 import { CrossCaseTab } from '@/components/case/CrossCaseTab'
 import { EntityResolutionTab } from '@/components/case/EntityResolutionTab'
+import { ConversasTab } from '@/components/case/ConversasTab'
 
 const NAV_ITEMS = [
   { icon: BarChart3, label: 'Timeline', id: 'timeline' },
   { icon: Search, label: 'Busca', id: 'search' },
   { icon: MessageSquare, label: 'Chat', id: 'chat' },
+  { icon: MessagesSquare, label: 'Conversas', id: 'conversas' },
   { icon: Database, label: 'Dados', id: 'data' },
   { icon: Bookmark, label: 'Bookmarks', id: 'bookmarks' },
   { icon: Eye, label: 'Watchlists', id: 'watchlists' },
@@ -249,6 +253,7 @@ export default function CaseDetail() {
       {activeTab === 'timeline' && <MapTab caseId={caseId!} />}
       {activeTab === 'search' && <SearchTab caseId={caseId!} />}
       {activeTab === 'chat' && <ChatTab caseId={caseId!} />}
+      {activeTab === 'conversas' && <ConversasTab caseId={caseId!} />}
       {activeTab === 'data' && <DataTab stats={stats} isLoading={statsLoading} />}
       {activeTab === 'bookmarks' && <BookmarksTab caseId={caseId!} />}
       {activeTab === 'watchlists' && <WatchlistsTab caseId={caseId!} />}
@@ -666,11 +671,15 @@ function MediaTab({ caseId }: { caseId: string }) {
   const [selectedClass, setSelectedClass] = useState('')
   const [minConfidence, setMinConfidence] = useState(0.5)
   const [showOnlyDetections, setShowOnlyDetections] = useState(false)
+  const [mediaPage, setMediaPage] = useState(0)
+  const MEDIA_PAGE_SIZE = 60
 
-  const { data: media = [], isLoading: mediaLoading } = useQuery({
-    queryKey: ['media', caseId],
-    queryFn: () => apiListMedia(caseId),
+  const { data: mediaData, isLoading: mediaLoading } = useQuery({
+    queryKey: ['media', caseId, mediaPage],
+    queryFn: () => apiListMedia(caseId, { limit: MEDIA_PAGE_SIZE, offset: mediaPage * MEDIA_PAGE_SIZE }),
   })
+  const media = mediaData?.items ?? []
+  const mediaTotal = mediaData?.total ?? 0
 
   const { data: detectionStats = [] } = useQuery({
     queryKey: ['detectionStats', caseId, minConfidence],
@@ -713,7 +722,7 @@ function MediaTab({ caseId }: { caseId: string }) {
       <PageHeader
         icon={Image}
         title="Mídia"
-        description={`${media.length} arquivo(s)`}
+        description={`${mediaTotal.toLocaleString()} arquivo(s) · página ${mediaPage + 1} de ${Math.max(1, Math.ceil(mediaTotal / MEDIA_PAGE_SIZE))}`}
         actions={
           <Button
             size="sm"
@@ -880,25 +889,138 @@ function MediaTab({ caseId }: { caseId: string }) {
           })}
         </div>
       )}
+
+      {!showOnlyDetections && mediaTotal > MEDIA_PAGE_SIZE && (
+        <div className="mt-6 flex items-center justify-center gap-3 pb-4">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setMediaPage(Math.max(0, mediaPage - 1))}
+            disabled={mediaPage === 0}
+          >
+            Anterior
+          </Button>
+          <span className="text-xs text-dim">
+            Página {mediaPage + 1} de {Math.ceil(mediaTotal / MEDIA_PAGE_SIZE)}
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setMediaPage(mediaPage + 1)}
+            disabled={(mediaPage + 1) * MEDIA_PAGE_SIZE >= mediaTotal}
+          >
+            Próxima
+          </Button>
+        </div>
+      )}
     </>
   )
 }
 
 function MediaThumbnail({ hash, mimeType, caseId }: { hash: string; mimeType?: string | null; caseId: string }) {
   const [failed, setFailed] = useState(false)
+  const url = getMediaUrl(hash, caseId)
 
-  if (!mimeType?.startsWith('image/') || failed) {
+  if (failed || !mimeType) {
     return <Camera className="h-8 w-8 text-dim" />
   }
 
+  if (mimeType.startsWith('image/')) {
+    return (
+      <img
+        src={url}
+        alt={mimeType}
+        className="h-full w-full object-contain"
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+    )
+  }
+
+  if (mimeType.startsWith('video/')) {
+    return (
+      <video
+        src={url}
+        className="h-full w-full object-contain"
+        preload="metadata"
+        onError={() => setFailed(true)}
+      />
+    )
+  }
+
+  if (mimeType.startsWith('audio/')) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <audio src={url} controls className="w-full px-2" onError={() => setFailed(true)} />
+      </div>
+    )
+  }
+
+  if (mimeType === 'application/pdf') {
+    return (
+      <iframe
+        src={url}
+        title="PDF"
+        className="h-full w-full"
+        style={{ border: 'none', backgroundColor: '#fff' }}
+        onError={() => setFailed(true)}
+      />
+    )
+  }
+
+  const isTextLike =
+    mimeType.startsWith('text/') ||
+    mimeType === 'application/json' ||
+    mimeType === 'application/xml' ||
+    mimeType === 'application/javascript' ||
+    mimeType.endsWith('+json') ||
+    mimeType.endsWith('+xml')
+
+  if (isTextLike) {
+    return <TextFilePreview url={url} onFail={() => setFailed(true)} />
+  }
+
   return (
-    <img
-      src={`/api/media/file/${hash}?case_id=${caseId}`}
-      alt={mimeType}
-      className="h-full w-full object-contain"
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
+    <div className="flex flex-col items-center gap-2">
+      <FileText className="h-8 w-8 text-dim" />
+      <span className="px-2 text-center text-[10px] text-dim">{mimeType}</span>
+    </div>
+  )
+}
+
+function TextFilePreview({ url, onFail }: { url: string; onFail: () => void }) {
+  const { data: content, isError } = useQuery({
+    queryKey: ['text-preview', url],
+    queryFn: async () => {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`${res.status}`)
+      const text = await res.text()
+      return text.slice(0, 800)
+    },
+    staleTime: Infinity,
+    retry: false,
+  })
+
+  if (isError) {
+    onFail()
+    return null
+  }
+
+  // Rendered as plain text via React — HTML/JS content is never executed
+  return (
+    <pre
+      className="h-full w-full overflow-hidden p-2 text-left"
+      style={{
+        fontSize: '9px',
+        lineHeight: '1.35',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        color: '#a3a3a3',
+        margin: 0,
+      }}
+    >
+      {content ?? '…'}
+    </pre>
   )
 }
 

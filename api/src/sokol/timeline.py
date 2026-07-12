@@ -101,7 +101,7 @@ def get_timeline(
                        e.app, e.ref_table, e.ref_id, e.summary, e.meta
                 FROM events e
                 WHERE {where}
-                ORDER BY e.ts DESC
+                ORDER BY e.ts DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             """),
             bind,

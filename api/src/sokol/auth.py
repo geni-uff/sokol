@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Query, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -50,15 +50,27 @@ def create_session(user_id: UUID) -> str:
     return token
 
 
-def get_current_user(request: Request) -> CurrentUser:
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+def _resolve_token(request: Request, query_token: str | None = None) -> CurrentUser:
+    token = query_token
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+    if not token:
         raise HTTPException(status_code=401, detail="Missing authorization token")
-    token = auth[7:]
     data = _sessions.get(token)
     if data is None:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     return CurrentUser(user_id=data.user_id)
+
+
+def get_current_user(request: Request) -> CurrentUser:
+    return _resolve_token(request)
+
+
+def get_media_user(request: Request, token: str | None = Query(None)) -> CurrentUser:
+    """Like get_current_user but also accepts ?token= for <img>/<video> src URLs."""
+    return _resolve_token(request, token)
 
 
 def require_case_member(db: Session, case_id: UUID, user_id: UUID, roles: list[str] | None = None) -> str:
