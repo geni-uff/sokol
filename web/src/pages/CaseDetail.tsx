@@ -53,6 +53,7 @@ import {
   Play,
   Image,
   Scan,
+  GitMerge,
   Crosshair,
   Sword,
   Bomb,
@@ -77,6 +78,7 @@ import { MapTab } from '@/components/case/MapTab'
 import { FacesTab } from '@/components/case/FacesTab'
 import { OCRTab } from '@/components/case/OCRTab'
 import { ReportsTab } from '@/components/case/ReportsTab'
+import { CrossCaseTab } from '@/components/case/CrossCaseTab'
 
 const NAV_ITEMS = [
   { icon: BarChart3, label: 'Timeline', id: 'timeline' },
@@ -94,6 +96,7 @@ const NAV_ITEMS = [
   { icon: GitBranch, label: 'Grafo', id: 'graph' },
   { icon: Play, label: 'Playbooks', id: 'playbooks' },
   { icon: FileText, label: 'Relatórios', id: 'reports' },
+  { icon: GitMerge, label: 'Análise Cruzada', id: 'cross-case' },
   { icon: Settings, label: 'Operação', id: 'ops' },
 ]
 
@@ -255,6 +258,7 @@ export default function CaseDetail() {
       {activeTab === 'graph' && <GraphTab caseId={caseId!} />}
       {activeTab === 'playbooks' && <PlaybooksTab caseId={caseId!} />}
       {activeTab === 'reports' && <ReportsTab caseId={caseId!} />}
+      {activeTab === 'cross-case' && <CrossCaseTab caseId={caseId!} />}
       {activeTab === 'ops' && <OpsTab />}
     </AppShell>
   )
@@ -1028,49 +1032,6 @@ function PlaybooksTab({ caseId }: { caseId: string }) {
           ))}
         </div>
       )}
-    </>
-  )
-}
-
-function ReportsTab({ caseId }: { caseId: string }) {
-  const queryClient = useQueryClient()
-  const [generating, setGenerating] = useState(false)
-  const [title, setTitle] = useState('Laudo Forense')
-
-  const handleGenerate = async () => {
-    setGenerating(true)
-    try {
-      await apiGenerateReport(caseId, title)
-      queryClient.invalidateQueries({ queryKey: ['case', caseId] })
-    } catch {
-      // silent
-    } finally {
-      setGenerating(false)
-    }
-  }
-
-  return (
-    <>
-      <PageHeader icon={FileText} title="Relatórios" />
-      <Card>
-        <CardContent className="py-8 text-center">
-          <FileText className="mx-auto mb-3 h-8 w-8 text-dim" />
-          <p className="text-sm text-muted">Gerar relatório forense com cadeia de custódia</p>
-          <div className="mx-auto mt-4 flex max-w-sm gap-3">
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Título do laudo"
-              className={cn('flex-1', INPUT_CLASS)}
-            />
-            <Button onClick={handleGenerate} disabled={generating || !title.trim()}>
-              {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Gerar
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
     </>
   )
 }

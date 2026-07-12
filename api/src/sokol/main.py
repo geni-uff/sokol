@@ -45,6 +45,7 @@ from .ocr_results import router as ocr_router
 from .ops_monitoring import router as monitoring_router
 from .case_export import router as export_router
 from .case_backup import router as backup_router
+from .cross_case import router as cross_case_router
 
 app.include_router(cases_router)
 app.include_router(jobs_router)
@@ -69,6 +70,7 @@ app.include_router(ocr_router)
 app.include_router(monitoring_router)
 app.include_router(export_router)
 app.include_router(backup_router)
+app.include_router(cross_case_router)
 
 
 # ── Auth endpoints ────────────────────────────────────────────────────────

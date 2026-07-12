@@ -7,9 +7,18 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-# Install dependencies
+# Install dependencies (layer cached on pyproject.toml changes)
 COPY api/pyproject.toml ./api/pyproject.toml
-RUN cd api && uv venv && uv pip install -e ".[dev]" 2>/dev/null || uv pip install fastapi "uvicorn[standard]" httpx argon2-cffi sqlalchemy psycopg2-binary alembic
+RUN uv venv api/.venv && uv pip install --python api/.venv \
+    "fastapi>=0.115" \
+    "uvicorn[standard]>=0.34" \
+    "httpx>=0.28" \
+    "argon2-cffi>=23.1" \
+    "sqlalchemy>=2.0" \
+    "psycopg2-binary>=2.9" \
+    "alembic>=1.13" \
+    "redis>=5.0" \
+    "psutil>=6.0"
 
 # Copy API source
 COPY api/src/ ./api/src/

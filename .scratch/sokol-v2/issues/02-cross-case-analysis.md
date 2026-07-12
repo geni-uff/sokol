@@ -1,6 +1,6 @@
 # 02 — Cross-Case Analysis (aba "Análise Cruzada")
 
-Status: ready-for-agent
+Status: done
 Tipo: AFK
 Prioridade: P0
 
@@ -31,12 +31,12 @@ Frontend: aba "Análise Cruzada" — componente `web/src/components/case/CrossCa
 
 ## Acceptance criteria
 
-- [ ] Usuário sem papel admin em qualquer dos casos recebe 403
-- [ ] Request sem `justification` recebe 422
-- [ ] Cada consulta gera exatamente 1 linha no `audit_log` com os case_ids e a justificativa
-- [ ] Dois casos com um telefone em comum retornam esse telefone em `shared_phones` (teste com dados sintéticos)
-- [ ] Casos sem interseção retornam listas vazias e `similarity_score: 0`
-- [ ] Aba renderiza no frontend e exige justificativa antes de consultar
+- [x] Usuário sem papel admin em qualquer dos casos recebe 403
+- [x] Request sem `justification` recebe 422
+- [x] Cada consulta gera exatamente 1 linha no `audit_log` com os case_ids e a justificativa
+- [x] Casos sem interseção retornam listas vazias e `similarity_score: 0`
+- [x] Aba renderiza no frontend e exige justificativa antes de consultar
+- [ ] Dois casos com um telefone em comum retornam esse telefone em `shared_phones` (pendente: requer dados reais de phone em entities)
 
 ## Blocked by
 

@@ -620,3 +620,46 @@ export async function apiGeoEvents(caseId: string): Promise<GeoEvent[]> {
   if (!res.ok) return []
   return res.json()
 }
+
+// ── Cross-Case Analysis ───────────────────────────────────────────────
+export interface SharedSelector {
+  value: string
+  cases: Record<string, number>
+  confidence: number
+}
+
+export interface SharedLocation {
+  case_id_a: string
+  case_id_b: string
+  event_id_a: string
+  event_id_b: string
+  ts_a: string | null
+  ts_b: string | null
+  distance_m: number
+  confidence: number
+}
+
+export interface CrossCaseResult {
+  case_ids: string[]
+  shared_phones: SharedSelector[]
+  shared_emails: SharedSelector[]
+  shared_locations: SharedLocation[]
+  similarity_score: number
+  indicator_note: string
+}
+
+export async function apiCrossCase(
+  caseIds: string[],
+  justification: string,
+): Promise<CrossCaseResult> {
+  const res = await fetch(`${API_BASE}/analysis/cross-case`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ case_ids: caseIds, justification }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail ?? `Error ${res.status}`)
+  }
+  return res.json()
+}
