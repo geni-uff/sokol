@@ -1,6 +1,6 @@
 # 05 — Heatmaps forenses (aba "Analytics")
 
-Status: ready-for-agent
+Status: done
 Tipo: AFK
 Prioridade: P1
 
@@ -26,11 +26,11 @@ Lembrete Tailwind v4: tokens custom não resolvem em dev — inline styles ou cl
 
 ## Acceptance criteria
 
-- [ ] Heatmap de atividade respeita o `reference_timezone` do caso
-- [ ] Endpoints retornam 403 para não-membro do caso
-- [ ] Caso sem eventos retorna estruturas vazias (não 500)
-- [ ] Aba renderiza os 3 painéis com dados sintéticos
-- [ ] Nenhuma dependência frontend nova sem verificar as existentes primeiro
+- [x] Heatmap de atividade respeita o `reference_timezone` do caso (testado: America/Sao_Paulo)
+- [x] Endpoints retornam 403 para não-membro do caso (testado com UUID alheio)
+- [x] Caso sem eventos retorna estruturas vazias (não 500)
+- [x] Aba renderiza os 3 painéis com dados sintéticos
+- [x] Nenhuma dependência frontend nova (heatmap geo usa circleMarker do Leaflet já instalado; leaflet.heat NÃO foi adicionado)
 
 ## Blocked by
 
