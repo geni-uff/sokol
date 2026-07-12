@@ -186,6 +186,11 @@ class IngestWorker:
             # For now, mark as ready for pipeline
             self._update_progress(job_id, "completed", 100.0, f"Ingest completed: {inbox_ref}")
             logger.info(f"[{job_id}] ✅ Ingest completed successfully")
+            # Invalidate cached stats so next /events/stats reflects new data.
+            try:
+                self.redis_client.delete(f"sokol:stats:{case_id}")
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error(f"[{job_id}] ❌ Error: {e}", exc_info=True)

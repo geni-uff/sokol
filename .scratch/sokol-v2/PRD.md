@@ -19,7 +19,7 @@ Dar ao analista respostas que hoje exigem trabalho manual: "estes dois casos se 
 
 | # | Issue | Fase | Status inicial |
 |---|-------|------|----------------|
-| 01 | Infra: índices, cache e otimização de busca | pré-req | ready-for-agent |
+| 01 | Infra: índices, cache e otimização de busca | pré-req | done |
 | 02 | Cross-Case Analysis (dashboard "Análise Cruzada") | A1 | ready-for-agent |
 | 03 | Entity Resolution (mesma pessoa entre casos) | A2 | ready-for-agent |
 | 04 | Playbook Library (4 templates de produção) | A3 | ready-for-agent |

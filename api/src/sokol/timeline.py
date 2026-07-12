@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from .auth import CurrentUser, get_current_user, require_case_member
+from .cache import cache_get, cache_invalidate, cache_set
 from .db import get_session_factory
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -130,6 +131,9 @@ def get_timeline(
         )
 
 
+_STATS_TTL = 60  # seconds
+
+
 @router.get("/stats", response_model=CaseStats)
 def get_case_stats(
     case_id: UUID,
@@ -140,6 +144,12 @@ def get_case_stats(
     with factory() as db:
         require_case_member(db, case_id, user.user_id)
 
+    cache_key = f"sokol:stats:{case_id}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return CaseStats(**cached)
+
+    with factory() as db:
         events = db.execute(
             text("SELECT count(*) FROM events WHERE case_id = :cid"),
             {"cid": case_id},
@@ -160,14 +170,24 @@ def get_case_stats(
             {"cid": case_id},
         ).scalar()
 
+        media = db.execute(
+            text(
+                "SELECT count(DISTINCT m.hash) FROM media m "
+                "JOIN artifacts a ON a.media_hash = m.hash "
+                "WHERE a.case_id = :cid"
+            ),
+            {"cid": case_id},
+        ).scalar()
 
-        return CaseStats(
-            events=events,
-            messages=messages,
-            chunks=chunks,
-            entities=entities,
-            media=media,
-        )
+    result = CaseStats(
+        events=events or 0,
+        messages=messages or 0,
+        chunks=chunks or 0,
+        entities=entities or 0,
+        media=media or 0,
+    )
+    cache_set(cache_key, result.model_dump(), ttl_seconds=_STATS_TTL)
+    return result
 
 
 @router.get("/nearby", response_model=list[dict])

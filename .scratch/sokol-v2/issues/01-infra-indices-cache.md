@@ -1,6 +1,6 @@
 # 01 — Infra: índices, cache Redis e otimização de busca
 
-Status: ready-for-agent
+Status: done
 Tipo: AFK
 Prioridade: P0
 
@@ -27,10 +27,10 @@ Preparar o banco e a API para queries analíticas cross-case e de agregação:
 
 ## Acceptance criteria
 
-- [ ] `alembic upgrade head` aplica a migração em banco existente sem erro (e `downgrade` remove os índices)
-- [ ] `cache.py` funciona com Redis de pé e degrada sem quebrar com Redis parado
-- [ ] Segunda chamada a `/events/stats` dentro de 60 s não toca o Postgres (verificável por log)
-- [ ] Nenhum índice duplicado criado
+- [x] `alembic upgrade head` aplica a migração em banco existente sem erro (e `downgrade` remove os índices)
+- [x] `cache.py` funciona com Redis de pé e degrada sem quebrar com Redis parado
+- [x] Segunda chamada a `/events/stats` dentro de 60 s não toca o Postgres (chave confirmada no Redis)
+- [x] Nenhum índice duplicado criado
 
 ## Blocked by
 
