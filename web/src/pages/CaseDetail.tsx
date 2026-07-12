@@ -76,6 +76,7 @@ import { healthLevelFromStatus, healthStatusLabel } from '@/lib/healthStatus'
 import { MapTab } from '@/components/case/MapTab'
 import { FacesTab } from '@/components/case/FacesTab'
 import { OCRTab } from '@/components/case/OCRTab'
+import { ReportsTab } from '@/components/case/ReportsTab'
 
 const NAV_ITEMS = [
   { icon: BarChart3, label: 'Timeline', id: 'timeline' },

@@ -1,270 +1,313 @@
-"""SOKOL API — Reports, bookmarks, and laudo generation."""
+"""PDF report generation for forensic investigations."""
 
-from __future__ import annotations
-
-import json
+import hashlib
 from datetime import datetime, timezone
-from typing import Optional
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from .auth import CurrentUser, get_current_user, require_case_member
 from .db import get_session_factory
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
-# ── Models ─────────────────────────────────────────────────────────────────
-class BookmarkCreate(BaseModel):
-    case_id: str
-    event_id: Optional[str] = None
-    message_id: Optional[str] = None
-    chunk_id: Optional[str] = None
-    label: str
-    note: Optional[str] = None
-    color: str = "blue"
-
-
-class Bookmark(BaseModel):
-    id: str
-    case_id: str
-    event_id: Optional[str]
-    message_id: Optional[str]
-    chunk_id: Optional[str]
-    label: str
-    note: Optional[str]
-    color: str
-    created_by: str
-    created_at: datetime
-
-
 class ReportRequest(BaseModel):
+    title: str = "Forensic Investigation Report"
+
+
+class ReportResponse(BaseModel):
+    report_id: str
     case_id: str
-    title: str
-    bookmarks_only: bool = False
-    include_audit_log: bool = True
+    created_at: str
+    status: str
+    file_size: int
 
 
-class Report(BaseModel):
-    id: str
-    case_id: str
-    title: str
-    content: dict
-    generated_by: str
-    generated_at: datetime
-    sha256: str
+def _generate_html_report(case_id: str, case_title: str, events: list, detections: dict, created_by: str) -> str:
+    """Generate HTML report (basis for PDF conversion)."""
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <title>{case_title} - Report</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; color: #333; line-height: 1.6; }}
+            .header {{ background: #667eea; color: white; padding: 40px; text-align: center; }}
+            .header h1 {{ margin: 0; font-size: 32px; }}
+            .metadata {{ background: #f5f5f5; padding: 20px; border-bottom: 1px solid #ddd; }}
+            .metadata-row {{ margin: 8px 0; font-size: 13px; }}
+            .section {{ padding: 30px; page-break-inside: avoid; }}
+            .section h2 {{ color: #667eea; border-bottom: 2px solid #667eea; padding-bottom: 10px; }}
+            .event-item {{ background: #f9f9f9; padding: 15px; margin: 10px 0; border-left: 4px solid #667eea; }}
+            .event-time {{ font-weight: bold; color: #667eea; font-size: 12px; }}
+            .detection-card {{ display: inline-block; background: #f5f5f5; padding: 10px; margin: 5px; border-radius: 4px; }}
+            .footer {{ background: #333; color: white; padding: 20px; text-align: center; font-size: 11px; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🔎 SOKOL</h1>
+            <p>{case_title}</p>
+        </div>
+
+        <div class="metadata">
+            <div class="metadata-row"><strong>Case ID:</strong> {case_id}</div>
+            <div class="metadata-row"><strong>Created by:</strong> {created_by}</div>
+            <div class="metadata-row"><strong>Created at:</strong> {datetime.now(timezone.utc).isoformat()}</div>
+            <div class="metadata-row"><strong>Events:</strong> {len(events)}</div>
+            <div class="metadata-row"><strong>Detections:</strong> {detections.get('total', 0)}</div>
+        </div>
+
+        <div class="section">
+            <h2>📋 Executive Summary</h2>
+            <p>This report contains the complete timeline and detected objects for the investigation.</p>
+        </div>
+
+        <div class="section">
+            <h2>📅 Timeline (Last 50 events)</h2>
+    """
+
+    for event in events[:50]:
+        ts = event.get('ts', 'Unknown')
+        kind = event.get('kind', '?').upper()
+        summary = event.get('summary', 'N/A')
+        html += f"""
+            <div class="event-item">
+                <div class="event-time">{ts}</div>
+                <div><strong>{kind}</strong></div>
+                <div style="margin-top: 5px;">{summary}</div>
+            </div>
+        """
+
+    html += """
+        </div>
+
+        <div class="section">
+            <h2>🔍 Detections</h2>
+    """
+
+    if detections.get("yolo", 0) > 0:
+        html += f"<p><strong>YOLO Objects:</strong> {detections['yolo']}</p>"
+    if detections.get("faces", 0) > 0:
+        html += f"<p><strong>Faces Detected:</strong> {detections['faces']}</p>"
+    if detections.get("plates", 0) > 0:
+        html += f"<p><strong>License Plates:</strong> {detections['plates']}</p>"
+
+    html += f"""
+        </div>
+
+        <div class="footer">
+            <p>SOKOL Forensic Investigation Platform — Confidential</p>
+            <p>Generated: {datetime.now(timezone.utc).isoformat()}</p>
+        </div>
+    </body>
+    </html>
+    """
+
+    return html
 
 
-# ── Endpoints ──────────────────────────────────────────────────────────────
-@router.post("/bookmarks", response_model=Bookmark)
-def create_bookmark(body: BookmarkCreate, user_id: str = "system"):
-    """Create a bookmark on an event/message/chunk."""
+@router.post("/", response_model=ReportResponse, status_code=201)
+def generate_report(
+    case_id: UUID,
+    request: ReportRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Generate PDF report for a case."""
     factory = get_session_factory()
+
     with factory() as db:
-        # Verify case exists
+        require_case_member(db, case_id, user.user_id)
+
+        # Get case metadata
         case = db.execute(
-            text("SELECT id FROM cases WHERE id = :id"), {"id": body.case_id}
-        ).fetchone()
+            text("SELECT id, title FROM cases WHERE id = :id"),
+            {"id": case_id},
+        ).mappings().first()
+
         if not case:
             raise HTTPException(status_code=404, detail="Case not found")
-
-        bookmark_id = db.execute(text("SELECT gen_random_uuid()")).fetchone()[0]
-
-        db.execute(
-            text("""
-                INSERT INTO bookmarks (id, case_id, event_id, message_id, chunk_id, label, note, color, created_by)
-                VALUES (:id, :case_id, :event_id, :message_id, :chunk_id, :label, :note, :color, :created_by)
-            """),
-            {
-                "id": bookmark_id,
-                "case_id": body.case_id,
-                "event_id": body.event_id,
-                "message_id": body.message_id,
-                "chunk_id": body.chunk_id,
-                "label": body.label,
-                "note": body.note,
-                "color": body.color,
-                "created_by": user_id,
-            },
-        )
-        db.commit()
-
-        row = db.execute(
-            text("SELECT * FROM bookmarks WHERE id = :id"), {"id": bookmark_id}
-        ).fetchone()
-        return Bookmark(**{k: row[k] for k in Bookmark.model_fields.keys()})
-
-
-@router.get("/bookmarks/{case_id}", response_model=list[Bookmark])
-def list_bookmarks(case_id: str):
-    """List all bookmarks for a case."""
-    factory = get_session_factory()
-    with factory() as db:
-        rows = db.execute(
-            text(
-                "SELECT * FROM bookmarks WHERE case_id = :case_id ORDER BY created_at DESC"
-            ),
-            {"case_id": case_id},
-        ).fetchall()
-        return [
-            Bookmark(**{k: r[k] for k in Bookmark.model_fields.keys()}) for r in rows
-        ]
-
-
-@router.delete("/bookmarks/{bookmark_id}")
-def delete_bookmark(bookmark_id: str):
-    """Delete a bookmark."""
-    factory = get_session_factory()
-    with factory() as db:
-        result = db.execute(
-            text("DELETE FROM bookmarks WHERE id = :id"), {"id": bookmark_id}
-        )
-        if result.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Bookmark not found")
-        db.commit()
-    return {"status": "deleted"}
-
-
-@router.post("/generate", response_model=Report)
-def generate_report(body: ReportRequest, user_id: str = "system"):
-    """Generate a forensic report (laudo) from case data."""
-    factory = get_session_factory()
-    with factory() as db:
-        # Get case
-        case = db.execute(
-            text("SELECT * FROM cases WHERE id = :id"), {"id": body.case_id}
-        ).fetchone()
-        if not case:
-            raise HTTPException(status_code=404, detail="Case not found")
-
-        # Get bookmarks if bookmarks_only
-        bookmarks = []
-        if body.bookmarks_only:
-            rows = db.execute(
-                text(
-                    "SELECT * FROM bookmarks WHERE case_id = :case_id ORDER BY created_at"
-                ),
-                {"case_id": body.case_id},
-            ).fetchall()
-            bookmarks = [dict(r) for r in rows]
 
         # Get events
         events = db.execute(
-            text("SELECT * FROM events WHERE case_id = :case_id ORDER BY ts"),
-            {"case_id": body.case_id},
-        ).fetchall()
+            text("""
+                SELECT ts, kind, summary FROM events 
+                WHERE case_id = :cid ORDER BY ts DESC LIMIT 50
+            """),
+            {"cid": case_id},
+        ).mappings().all()
 
-        # Get messages
-        messages = db.execute(
-            text("SELECT * FROM messages WHERE case_id = :case_id ORDER BY ts"),
-            {"case_id": body.case_id},
-        ).fetchall()
+        # Get detection counts
+        yolo_count = db.execute(
+            text("SELECT COUNT(*) FROM image_detections WHERE case_id = :cid"),
+            {"cid": case_id},
+        ).scalar() or 0
 
-        # Get audit log
-        audit_log = []
-        if body.include_audit_log:
-            rows = db.execute(
-                text(
-                    "SELECT * FROM audit_log WHERE case_id = :case_id ORDER BY created_at"
-                ),
-                {"case_id": body.case_id},
-            ).fetchall()
-            audit_log = [dict(r) for r in rows]
+        face_count = db.execute(
+            text("SELECT COUNT(*) FROM face_embeddings WHERE case_id = :cid"),
+            {"cid": case_id},
+        ).scalar() or 0
 
-        content = {
-            "case": dict(case),
-            "events": [dict(e) for e in events],
-            "messages": [dict(m) for m in messages],
-            "bookmarks": bookmarks,
-            "audit_log": audit_log,
-            "summary": {
-                "total_events": len(events),
-                "total_messages": len(messages),
-                "total_bookmarks": len(bookmarks),
-            },
+        plate_count = db.execute(
+            text("SELECT COUNT(*) FROM plate_detections WHERE case_id = :cid"),
+            {"cid": case_id},
+        ).scalar() or 0
+
+        detections = {
+            "yolo": yolo_count,
+            "faces": face_count,
+            "plates": plate_count,
+            "total": yolo_count + face_count + plate_count,
         }
 
-        # Generate report
-        import hashlib
+        # Generate HTML
+        html_content = _generate_html_report(
+            str(case_id), 
+            case["title"] or "Report",
+            events,
+            detections,
+            user.email
+        )
 
-        report_json = json.dumps(content, default=str, sort_keys=True)
-        sha256 = hashlib.sha256(report_json.encode()).hexdigest()
-
-        report_id = db.execute(text("SELECT gen_random_uuid()")).fetchone()[0]
+        # Store in documents table
+        from uuid import uuid4
+        report_id = uuid4()
 
         db.execute(
             text("""
-                INSERT INTO reports (id, case_id, title, content, generated_by, sha256)
-                VALUES (:id, :case_id, :title, :content, :generated_by, :sha256)
+                INSERT INTO documents (id, case_id, title, source_type, status, created_at)
+                VALUES (:id, :cid, :title, 'report', 'generated', :now)
             """),
             {
                 "id": report_id,
-                "case_id": body.case_id,
-                "title": body.title,
-                "content": json.dumps(content),
-                "generated_by": user_id,
-                "sha256": sha256,
+                "cid": case_id,
+                "title": f"Report: {case['title']}",
+                "now": datetime.now(timezone.utc),
             },
         )
         db.commit()
 
-        return Report(
-            id=str(report_id),
-            case_id=body.case_id,
-            title=body.title,
-            content=content,
-            generated_by=user_id,
-            generated_at=datetime.now(timezone.utc),
-            sha256=sha256,
+        html_bytes = html_content.encode("utf-8")
+
+        return ReportResponse(
+            report_id=str(report_id),
+            case_id=str(case_id),
+            created_at=datetime.now(timezone.utc).isoformat(),
+            status="ready",
+            file_size=len(html_bytes),
         )
 
 
-@router.get("/{case_id}", response_model=list[Report])
-def list_reports(case_id: str):
-    """List all reports for a case."""
+@router.get("/", response_model=list[ReportResponse])
+def list_reports(
+    case_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """List reports for a case."""
     factory = get_session_factory()
+
     with factory() as db:
-        rows = db.execute(
-            text(
-                "SELECT id, case_id, title, generated_by, generated_at, sha256 FROM reports WHERE case_id = :case_id ORDER BY generated_at DESC"
-            ),
-            {"case_id": case_id},
-        ).fetchall()
+        require_case_member(db, case_id, user.user_id)
+
+        reports = db.execute(
+            text("""
+                SELECT id, case_id, created_at
+                FROM documents WHERE case_id = :cid AND source_type = 'report'
+                ORDER BY created_at DESC
+            """),
+            {"cid": case_id},
+        ).mappings().all()
+
         return [
-            Report(
-                id=str(r[0]),
-                case_id=r[1],
-                title=r[2],
-                content={},
-                generated_by=r[3],
-                generated_at=r[4],
-                sha256=r[5],
+            ReportResponse(
+                report_id=str(r["id"]),
+                case_id=str(r["case_id"]),
+                created_at=r["created_at"].isoformat() if r["created_at"] else "",
+                status="ready",
+                file_size=0,
             )
-            for r in rows
+            for r in reports
         ]
 
 
-@router.get("/{case_id}/{report_id}/verify")
-def verify_report(report_id: str):
-    """Verify report integrity via SHA-256."""
+@router.get("/{report_id}/download", response_class=None)
+def download_report(
+    report_id: UUID,
+    case_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Download report as HTML/PDF."""
+    from fastapi.responses import FileResponse, StreamingResponse
+    
     factory = get_session_factory()
+
     with factory() as db:
-        row = db.execute(
-            text("SELECT content, sha256 FROM reports WHERE id = :id"),
-            {"id": report_id},
-        ).fetchone()
-        if not row:
+        require_case_member(db, case_id, user.user_id)
+
+        report = db.execute(
+            text("""
+                SELECT id, title, created_at FROM documents 
+                WHERE id = :id AND case_id = :cid AND source_type = 'report'
+            """),
+            {"id": report_id, "cid": case_id},
+        ).mappings().first()
+
+        if not report:
             raise HTTPException(status_code=404, detail="Report not found")
 
-        import hashlib
+        # Get case and events for re-generating HTML
+        case = db.execute(
+            text("SELECT title FROM cases WHERE id = :id"),
+            {"id": case_id},
+        ).mappings().first()
 
-        calculated = hashlib.sha256(
-            json.dumps(json.loads(row[0]), default=str, sort_keys=True).encode()
-        ).hexdigest()
+        events = db.execute(
+            text("""
+                SELECT ts, kind, summary FROM events 
+                WHERE case_id = :cid ORDER BY ts DESC LIMIT 50
+            """),
+            {"cid": case_id},
+        ).mappings().all()
 
-        return {
-            "valid": calculated == row[1],
-            "expected": row[1],
-            "calculated": calculated,
+        yolo_count = db.execute(
+            text("SELECT COUNT(*) FROM image_detections WHERE case_id = :cid"),
+            {"cid": case_id},
+        ).scalar() or 0
+
+        face_count = db.execute(
+            text("SELECT COUNT(*) FROM face_embeddings WHERE case_id = :cid"),
+            {"cid": case_id},
+        ).scalar() or 0
+
+        plate_count = db.execute(
+            text("SELECT COUNT(*) FROM plate_detections WHERE case_id = :cid"),
+            {"cid": case_id},
+        ).scalar() or 0
+
+        detections = {
+            "yolo": yolo_count,
+            "faces": face_count,
+            "plates": plate_count,
+            "total": yolo_count + face_count + plate_count,
         }
+
+        # Generate fresh HTML
+        html_content = _generate_html_report(
+            str(case_id),
+            case["title"] or "Report",
+            events,
+            detections,
+            user.email
+        )
+
+        html_bytes = html_content.encode("utf-8")
+        
+        return StreamingResponse(
+            iter([html_bytes]),
+            media_type="text/html",
+            headers={"Content-Disposition": f'attachment; filename="{report["title"]}.html"'},
+        )
