@@ -16,6 +16,7 @@ from sqlalchemy import text
 from .auth import CurrentUser, get_current_user, require_case_member
 from .db import get_session_factory
 from .jobs import emit_progress
+from .queue import enqueue_ingest_job, get_ingest_progress, queue_size
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
@@ -58,6 +59,14 @@ class BatchIngestResponse(BaseModel):
     results: list[IngestResponse]
     total: int
     queued: int
+
+
+class IngestProgressResponse(BaseModel):
+    job_id: str
+    status: str  # running, completed, failed
+    progress: float  # 0.0 to 100.0
+    message: str
+    updated_at: str
 
 
 # ── Path traversal protection ─────────────────────────────────────────────
@@ -181,6 +190,27 @@ async def start_ingest(
     emit_progress(str(job_id), "import", "running", 0.0, f"Importing {inbox_ref}")
 
     return IngestResponse(job_id=job_id, document_id=doc_id, status="pending")
+
+
+@router.get("/progress/{job_id}", response_model=IngestProgressResponse | dict)
+def get_ingest_progress_endpoint(
+    job_id: str,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Get progress of an ingest job."""
+    progress = get_ingest_progress(UUID(job_id))
+    if not progress:
+        return {"detail": "Job not found", "job_id": job_id}
+    return progress
+
+
+@router.get("/queue/status", response_model=dict)
+def get_queue_status(user: CurrentUser = Depends(get_current_user)):
+    """Get current queue status."""
+    return {
+        "queued_jobs": queue_size(),
+        "worker_status": "Check /health for worker health",
+    }
 
 
 @router.post("/batch", response_model=BatchIngestResponse, status_code=201)

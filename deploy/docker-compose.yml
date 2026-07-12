@@ -40,11 +40,14 @@ services:
       SOKOL_API_HOST: "0.0.0.0"
       SOKOL_API_PORT: "8000"
       DATABASE_URL: postgresql://sokol:change_me@localhost:5433/sokol
+      REDIS_URL: redis://localhost:6379/0
       DB_HOST: localhost
       DB_PORT: "5433"
       POSTGRES_USER: ${POSTGRES_USER:-sokol}
     depends_on:
       sokol-postgres:
+        condition: service_healthy
+      sokol-redis:
         condition: service_healthy
     volumes:
       - ../synth/output:/data/ufdr-extract/synth:ro
@@ -206,12 +209,31 @@ services:
       - sokol-net
 
   # ---------------------------------------------------------------------------
+  # Redis — Job queue and cache
+  # ---------------------------------------------------------------------------
+  sokol-redis:
+    image: redis:7-alpine
+    container_name: sokol-redis
+    restart: unless-stopped
+    ports:
+      - "${SOKOL_REDIS_PORT:-6379}:6379"
+    volumes:
+      - sokol-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - sokol-net
+
+  # ---------------------------------------------------------------------------
   # Worker — UFDR ingestion and background job processing
   # ---------------------------------------------------------------------------
   sokol-worker:
     build:
       context: ..
-      dockerfile: api/Dockerfile
+      dockerfile: worker/Dockerfile
     container_name: sokol-worker
     restart: unless-stopped
     network_mode: host
@@ -219,16 +241,19 @@ services:
       - ../.env
     environment:
       DATABASE_URL: postgresql://sokol:change_me@localhost:5433/sokol
+      REDIS_URL: redis://localhost:6379/0
       PYTHONPATH: /data/project
     depends_on:
       sokol-postgres:
+        condition: service_healthy
+      sokol-redis:
         condition: service_healthy
     volumes:
       - ../:/data/project:ro
       - ../data/media-cache:/data/media-cache
       - ../data/staging:/data/staging
       - ../UFDRsTest:/ingest/inbox:ro
-    command: ["bash", "-c", "cd /data/project && python -m worker.loop"]
+    command: ["python", "ingest_worker.py", "1", "1"]
 
   # ---------------------------------------------------------------------------
   # Frontend — React SPA
@@ -249,6 +274,8 @@ services:
 
 volumes:
   sokol-pgdata:
+    driver: local
+  sokol-redis-data:
     driver: local
   sokol-models:
     driver: local
