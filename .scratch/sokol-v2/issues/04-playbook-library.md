@@ -1,6 +1,6 @@
 # 04 — Playbook Library: 4 templates de produção
 
-Status: ready-for-agent
+Status: done
 Tipo: AFK
 Prioridade: P1
 

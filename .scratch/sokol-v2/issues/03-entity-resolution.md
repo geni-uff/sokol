@@ -1,6 +1,6 @@
 # 03 — Entity Resolution (mesma pessoa, não-destrutiva)
 
-Status: ready-for-agent
+Status: done
 Tipo: AFK
 Prioridade: P0
 

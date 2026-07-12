@@ -21,8 +21,8 @@ Dar ao analista respostas que hoje exigem trabalho manual: "estes dois casos se 
 |---|-------|------|----------------|
 | 01 | Infra: índices, cache e otimização de busca | pré-req | done |
 | 02 | Cross-Case Analysis (dashboard "Análise Cruzada") | A1 | done |
-| 03 | Entity Resolution (mesma pessoa entre casos) | A2 | ready-for-agent |
-| 04 | Playbook Library (4 templates de produção) | A3 | ready-for-agent |
+| 03 | Entity Resolution (mesma pessoa entre casos) | A2 | done |
+| 04 | Playbook Library (4 templates de produção) | A3 | done |
 | 05 | Heatmaps forenses (aba Analytics) | B1 | ready-for-agent |
 | 06 | Detecção de anomalias na timeline | B2 | ready-for-agent |
 | 07 | Watchlists em tempo real na ingestão | B3 | ready-for-agent |
