@@ -24,8 +24,8 @@ Dar ao analista respostas que hoje exigem trabalho manual: "estes dois casos se 
 | 03 | Entity Resolution (mesma pessoa entre casos) | A2 | done |
 | 04 | Playbook Library (4 templates de produção) | A3 | done |
 | 05 | Heatmaps forenses (aba Analytics) | B1 | done |
-| 06 | Detecção de anomalias na timeline | B2 | ready-for-agent |
-| 07 | Watchlists em tempo real na ingestão | B3 | ready-for-agent |
+| 06 | Detecção de anomalias na timeline | B2 | done |
+| 07 | Watchlists em tempo real na ingestão | B3 | done |
 | 08 | Comentários e anotações em casos | C1 | ready-for-agent |
 | 09 | Relatórios PDF reais com gráficos | C2 | ready-for-agent |
 | 10 | Export em massa (CSV/VCard/KML) | C3 | ready-for-agent |

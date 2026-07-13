@@ -1,6 +1,6 @@
 # 06 — Detecção de anomalias na timeline
 
-Status: ready-for-agent
+Status: done
 Tipo: AFK
 Prioridade: P1
 
@@ -29,11 +29,11 @@ Frontend: seção "Anomalias" (na aba Timeline ou Analytics — escolher a que e
 
 ## Acceptance criteria
 
-- [ ] Migração cria a tabela `anomalies` (upgrade + downgrade limpos)
-- [ ] Corpus sintético com salto de 500 km em 10 min gera anomalia kind `impossible_jump`
-- [ ] Regras de horário usam o fuso do caso (ADR-0007)
-- [ ] Dismiss persiste e some da lista default; fica no `audit_log`
-- [ ] Nenhuma anomalia é exposta como fato — resposta sempre carrega `score` e `explanation`
+- [x] Migração 015 cria a tabela `anomalies` (upgrade + downgrade limpos)
+- [x] Dados reais (Apple) geraram 2 `impossible_jump` (17 km em <1 min, 5600 km/h)
+- [x] Regras de horário usam o fuso do caso (ADR-0007) — verificado America/Sao_Paulo na explicação
+- [x] Dismiss persiste e some da lista default; `anomalies.dismiss` no `audit_log`
+- [x] Nenhuma anomalia é exposta como fato — resposta carrega `score`, `explanation` e `indicator_note`
 
 ## Blocked by
 

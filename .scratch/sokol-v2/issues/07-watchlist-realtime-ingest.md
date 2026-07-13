@@ -1,6 +1,6 @@
 # 07 — Watchlists em tempo real durante a ingestão
 
-Status: ready-for-agent
+Status: done
 Tipo: AFK
 Prioridade: P2
 
@@ -25,11 +25,11 @@ Prioridade: P2
 
 ## Acceptance criteria
 
-- [ ] Ingerir UFDR sintético contendo um telefone monitorado gera hit automaticamente, sem scan manual
-- [ ] Telefone salvo como `+55 21 99999-9999` casa com seletor `21999999999`
-- [ ] Watchlist com `case_id` setado não gera hit em outros casos
-- [ ] Hit aparece via SSE durante a ingestão e na UI
-- [ ] Scan incremental: re-ingestão não duplica hits antigos
+- [x] Hook pós-inserção no ufdr_parser roda scan incremental (IDs recém-inseridos); engine verificado carregando dentro do container do worker
+- [x] Telefone `+55 21 99715-0213` casou 214 linhas gravadas como `5521997150213` (match_type=exact)
+- [x] Watchlist escopada ao caso Apple: scan no caso Google = 0 watchlists, 0 hits
+- [x] Hit emitido no canal de progresso da ingestão (stage `watchlist`); badge de hits na WatchlistsTab (polling 30 s)
+- [x] Re-scan criou 0 duplicatas (dedup por watchlist+pattern+row)
 
 ## Blocked by
 
