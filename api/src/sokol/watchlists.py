@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from .auth import CurrentUser, get_current_user, require_case_member
 from .db import get_session_factory
+from .watchlist_engine import scan_rows
 
 router = APIRouter(prefix="/watchlists", tags=["watchlists"])
 
@@ -47,6 +49,7 @@ class WatchlistHit(BaseModel):
     matched_pattern: str
     matched_text: str
     confidence: float
+    match_type: str = "exact"
     acknowledged: bool
     created_at: datetime
 
@@ -58,56 +61,60 @@ class ScanRequest(BaseModel):
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 def _row_to_watchlist(row) -> Watchlist:
+    m = row._mapping
     return Watchlist(
-        id=str(row["id"]),
-        case_id=str(row["case_id"]) if row["case_id"] else None,
-        name=row["name"],
-        description=row["description"],
-        watch_type=row["watch_type"],
-        patterns=row["patterns"] if isinstance(row["patterns"], list) else [],
-        is_global=bool(row.get("is_global", False)),
-        is_active=row["is_active"],
-        created_by=str(row["created_by"]),
-        created_at=row["created_at"],
+        id=str(m["id"]),
+        case_id=str(m["case_id"]) if m["case_id"] else None,
+        name=m["name"],
+        description=m["description"],
+        watch_type=m["watch_type"],
+        patterns=m["patterns"] if isinstance(m["patterns"], list) else [],
+        is_global=bool(m.get("is_global", False)),
+        is_active=m["is_active"],
+        created_by=str(m["created_by"]),
+        created_at=m["created_at"],
     )
 
 
 def _row_to_hit(row) -> WatchlistHit:
+    m = row._mapping
     return WatchlistHit(
-        id=str(row["id"]),
-        watchlist_id=str(row["watchlist_id"]),
-        case_id=str(row["case_id"]) if row.get("case_id") else None,
-        event_id=str(row["event_id"]) if row.get("event_id") else None,
-        message_id=str(row["message_id"]) if row.get("message_id") else None,
-        matched_pattern=row["matched_pattern"],
-        matched_text=row["matched_text"],
-        confidence=row["confidence"],
-        acknowledged=row["acknowledged"],
-        created_at=row["created_at"],
+        id=str(m["id"]),
+        watchlist_id=str(m["watchlist_id"]),
+        case_id=str(m["case_id"]) if m.get("case_id") else None,
+        event_id=str(m["event_id"]) if m.get("event_id") else None,
+        message_id=str(m["message_id"]) if m.get("message_id") else None,
+        matched_pattern=m["matched_pattern"],
+        matched_text=m["matched_text"],
+        confidence=m["confidence"],
+        match_type=m.get("match_type") or "exact",
+        acknowledged=m["acknowledged"],
+        created_at=m["created_at"],
     )
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
 @router.post("/", response_model=Watchlist)
-def create_watchlist(body: WatchlistCreate, user_id: str = "system"):
+def create_watchlist(body: WatchlistCreate, user: CurrentUser = Depends(get_current_user)):
+    import json as _json
+
     factory = get_session_factory()
     with factory() as db:
         wl_id = db.execute(text("SELECT gen_random_uuid()")).fetchone()[0]
-        case_id = None if body.is_global else body.case_id
 
         if body.is_global:
             db.execute(
                 text("""
                     INSERT INTO watchlists (id, case_id, name, description, watch_type, patterns, is_global, created_by)
-                    VALUES (:id, NULL, :name, :description, :watch_type, :patterns, true, :created_by)
+                    VALUES (:id, NULL, :name, :description, :watch_type, CAST(:patterns AS jsonb), true, :created_by)
                 """),
                 {
                     "id": wl_id,
                     "name": body.name,
                     "description": body.description,
                     "watch_type": body.watch_type,
-                    "patterns": body.patterns,
-                    "created_by": user_id,
+                    "patterns": _json.dumps(body.patterns),
+                    "created_by": user.user_id,
                 },
             )
         else:
@@ -115,10 +122,11 @@ def create_watchlist(body: WatchlistCreate, user_id: str = "system"):
                 raise HTTPException(
                     status_code=400, detail="case_id required for non-global watchlist"
                 )
+            require_case_member(db, UUID(body.case_id), user.user_id, roles=["admin", "analista"])
             db.execute(
                 text("""
                     INSERT INTO watchlists (id, case_id, name, description, watch_type, patterns, created_by)
-                    VALUES (:id, :case_id, :name, :description, :watch_type, :patterns, :created_by)
+                    VALUES (:id, :case_id, :name, :description, :watch_type, CAST(:patterns AS jsonb), :created_by)
                 """),
                 {
                     "id": wl_id,
@@ -126,8 +134,8 @@ def create_watchlist(body: WatchlistCreate, user_id: str = "system"):
                     "name": body.name,
                     "description": body.description,
                     "watch_type": body.watch_type,
-                    "patterns": body.patterns,
-                    "created_by": user_id,
+                    "patterns": _json.dumps(body.patterns),
+                    "created_by": user.user_id,
                 },
             )
         db.commit()
@@ -249,122 +257,19 @@ def hits_summary(case_id: str):
 
 # ── Scan endpoint ──────────────────────────────────────────────────────────
 @router.post("/scan")
-def scan_case(body: ScanRequest):
-    """Scan all active watchlists (case-specific + global) against a case's events and messages."""
+def scan_case(body: ScanRequest, user: CurrentUser = Depends(get_current_user)):
+    """Scan all active watchlists (case-specific + global) against a case."""
     factory = get_session_factory()
-    hits_created = 0
-
     with factory() as db:
-        watchlists = db.execute(
+        require_case_member(db, UUID(body.case_id), user.user_id)
+        watchlists_count = db.execute(
             text("""
-                SELECT * FROM watchlists
+                SELECT COUNT(*) FROM watchlists
                 WHERE is_active = true AND (case_id = :cid OR is_global = true)
             """),
             {"cid": body.case_id},
-        ).fetchall()
-
-        if not watchlists:
-            return {"hits_created": 0, "watchlists_scanned": 0}
-
-        events = db.execute(
-            text("""
-                SELECT id, kind, summary, source, dest, ts
-                FROM events WHERE case_id = :cid
-                ORDER BY ts DESC LIMIT :lim
-            """),
-            {"cid": body.case_id, "lim": body.limit},
-        ).fetchall()
-
-        messages = db.execute(
-            text("""
-                SELECT id, body, sender, receiver, ts
-                FROM messages WHERE case_id = :cid
-                ORDER BY ts DESC LIMIT :lim
-            """),
-            {"cid": body.case_id, "lim": body.limit},
-        ).fetchall()
-
-        existing_hashes = set()
-        existing = db.execute(
-            text("""
-                SELECT watchlist_id, matched_pattern, event_id, message_id
-                FROM watchlist_hits wh
-                JOIN watchlists w ON wh.watchlist_id = w.id
-                WHERE w.case_id = :cid OR w.is_global = true
-            """),
-            {"cid": body.case_id},
-        ).fetchall()
-        for e in existing:
-            key = (
-                str(e["watchlist_id"]),
-                e["matched_pattern"],
-                str(e["event_id"] or ""),
-                str(e["message_id"] or ""),
-            )
-            existing_hashes.add(key)
-
-        for wl in watchlists:
-            wl_id = str(wl["id"])
-            patterns = wl["patterns"] if isinstance(wl["patterns"], list) else []
-            watch_type = wl["watch_type"]
-
-            compiled = []
-            for p in patterns:
-                try:
-                    compiled.append((p, re.compile(re.escape(p), re.IGNORECASE)))
-                except re.error:
-                    compiled.append((p, None))
-
-            for event in events:
-                searchable = " ".join(
-                    str(event[k] or "") for k in ("summary", "source", "dest")
-                )
-                for pattern_str, regex in compiled:
-                    if regex and regex.search(searchable):
-                        key = (wl_id, pattern_str, str(event["id"]), "")
-                        if key not in existing_hashes:
-                            db.execute(
-                                text("""
-                                    INSERT INTO watchlist_hits
-                                    (id, watchlist_id, case_id, event_id, matched_pattern, matched_text, confidence)
-                                    VALUES (gen_random_uuid(), :wid, :cid, :eid, :pat, :txt, 1.0)
-                                """),
-                                {
-                                    "wid": wl_id,
-                                    "cid": body.case_id,
-                                    "eid": str(event["id"]),
-                                    "pat": pattern_str,
-                                    "txt": str(event.get("summary", ""))[:500],
-                                },
-                            )
-                            hits_created += 1
-                            existing_hashes.add(key)
-
-            for msg in messages:
-                searchable = " ".join(
-                    str(msg[k] or "") for k in ("body", "sender", "receiver")
-                )
-                for pattern_str, regex in compiled:
-                    if regex and regex.search(searchable):
-                        key = (wl_id, pattern_str, "", str(msg["id"]))
-                        if key not in existing_hashes:
-                            db.execute(
-                                text("""
-                                    INSERT INTO watchlist_hits
-                                    (id, watchlist_id, case_id, message_id, matched_pattern, matched_text, confidence)
-                                    VALUES (gen_random_uuid(), :wid, :cid, :mid, :pat, :txt, 1.0)
-                                """),
-                                {
-                                    "wid": wl_id,
-                                    "cid": body.case_id,
-                                    "mid": str(msg["id"]),
-                                    "pat": pattern_str,
-                                    "txt": str(msg.get("body", ""))[:500],
-                                },
-                            )
-                            hits_created += 1
-                            existing_hashes.add(key)
-
+        ).scalar()
+        hits_created = scan_rows(db, body.case_id)
         db.commit()
 
-    return {"hits_created": hits_created, "watchlists_scanned": len(watchlists)}
+    return {"hits_created": hits_created, "watchlists_scanned": watchlists_count}

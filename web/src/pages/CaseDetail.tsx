@@ -21,6 +21,7 @@ import {
   apiDetectionStats,
   apiMediaWithDetections,
   apiGenerateReport,
+  apiWatchlistHitsSummary,
   getMediaUrl,
   type SearchResult,
   type CaseStats,
@@ -577,12 +578,23 @@ function WatchlistsTab({ caseId }: { caseId: string }) {
     queryFn: () => apiListWatchlists(caseId),
   })
 
+  const { data: hitsSummary } = useQuery({
+    queryKey: ['watchlist-hits-summary', caseId],
+    queryFn: () => apiWatchlistHitsSummary(caseId),
+    refetchInterval: 30_000,
+  })
+
   return (
     <>
       <PageHeader
         icon={Eye}
         title="Watchlists"
-        description={`${watchlists.length} lista(s)`}
+        description={`${watchlists.length} lista(s) · ${hitsSummary?.total_hits ?? 0} hit(s)`}
+        actions={
+          hitsSummary && hitsSummary.unacknowledged > 0 ? (
+            <Badge variant="danger">{hitsSummary.unacknowledged} não reconhecido(s)</Badge>
+          ) : undefined
+        }
       />
       {isLoading ? (
         <Loader2 className="h-5 w-5 animate-spin text-muted" />

@@ -862,3 +862,56 @@ export async function apiContactFrequency(caseId: string, top = 15): Promise<Con
   const data = await res.json()
   return data.contacts ?? []
 }
+
+// ── Anomalies ───────────────────────────────────────────────────────────
+
+export interface Anomaly {
+  id: string
+  case_id: string
+  kind: string
+  severity: string
+  score: number
+  explanation: string
+  ref_event_ids: string[]
+  dismissed: boolean
+  created_at: string
+  indicator_note: string
+}
+
+export async function apiAnalyzeAnomalies(caseId: string): Promise<{ created: number; by_kind: Record<string, number> }> {
+  const res = await fetch(`${API_BASE}/anomalies/${caseId}/analyze`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail ?? `Error ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function apiListAnomalies(caseId: string, dismissed = false): Promise<Anomaly[]> {
+  const res = await fetch(`${API_BASE}/anomalies/${caseId}?dismissed=${dismissed}`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function apiDismissAnomaly(anomalyId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/anomalies/${anomalyId}/dismiss`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Error ${res.status}`)
+}
+
+export interface WatchlistHitsSummary {
+  total_hits: number
+  unacknowledged: number
+  watchlists_with_hits: number
+}
+
+export async function apiWatchlistHitsSummary(caseId: string): Promise<WatchlistHitsSummary> {
+  const res = await fetch(`${API_BASE}/watchlists/${caseId}/hits/summary`, { headers: authHeaders() })
+  if (!res.ok) return { total_hits: 0, unacknowledged: 0, watchlists_with_hits: 0 }
+  return res.json()
+}

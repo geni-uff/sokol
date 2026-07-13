@@ -772,8 +772,10 @@ def process_ufdr(
     # Phase 6: Insert events
     emit("insert_events", 0.88, f"Inserting {len(parsed_result.events)} events...")
     evt_count = 0
+    evt_ids = []
     for evt in parsed_result.events:
         evt_id = uuid4()
+        evt_ids.append(evt_id)
         now = datetime.now(timezone.utc)
 
         geo_sql = "NULL"
@@ -811,6 +813,30 @@ def process_ufdr(
 
     db.commit()
     emit("insert_events", 0.92, f"Inserted {evt_count} events")
+
+    # Phase 6.2: Realtime watchlist scan on the rows just inserted (v2-07).
+    # Engine lives in the API tree; load it by path so worker needs no package dep.
+    try:
+        import importlib.util
+
+        engine_path = (
+            Path(__file__).resolve().parent.parent
+            / "api" / "src" / "sokol" / "watchlist_engine.py"
+        )
+        spec = importlib.util.spec_from_file_location("watchlist_engine", engine_path)
+        wl_engine = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wl_engine)
+
+        wl_hits = wl_engine.scan_rows(
+            db, str(case_id), event_ids=evt_ids, message_ids=msg_ids
+        )
+        db.commit()
+        if wl_hits:
+            emit("watchlist", 0.925, f"⚠ {wl_hits} watchlist hit(s) detectado(s)")
+        else:
+            emit("watchlist", 0.925, "Watchlists: sem hits")
+    except Exception as e:
+        emit("watchlist", 0.925, f"Watchlist scan skipped: {e}")
 
     # Phase 6.5: Create chunks from messages for semantic search
     chunk_count = 0
