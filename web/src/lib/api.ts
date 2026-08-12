@@ -995,3 +995,65 @@ export async function apiDeleteComment(commentId: string): Promise<void> {
     throw new Error(err.detail ?? `Error ${res.status}`)
   }
 }
+
+export type BulkExportKind =
+  | 'timeline.csv'
+  | 'contacts.vcf'
+  | 'contacts.csv'
+  | 'locations.kml'
+  | 'zip'
+
+/** Download a bulk export file for the case (triggers browser save dialog). */
+export async function apiDownloadCaseExport(
+  caseId: string,
+  kind: BulkExportKind,
+  opts?: { startDate?: string; endDate?: string },
+): Promise<void> {
+  let url: string
+  let filename: string
+  switch (kind) {
+    case 'timeline.csv': {
+      const params = new URLSearchParams()
+      if (opts?.startDate) params.set('start_date', opts.startDate)
+      if (opts?.endDate) params.set('end_date', opts.endDate)
+      const qs = params.toString()
+      url = `${API_BASE}/export/${caseId}/timeline.csv${qs ? `?${qs}` : ''}`
+      filename = `case_${caseId}_timeline.csv`
+      break
+    }
+    case 'contacts.vcf':
+      url = `${API_BASE}/export/${caseId}/contacts.vcf`
+      filename = `case_${caseId}_contacts.vcf`
+      break
+    case 'contacts.csv':
+      url = `${API_BASE}/export/${caseId}/contacts.csv`
+      filename = `case_${caseId}_contacts.csv`
+      break
+    case 'locations.kml':
+      url = `${API_BASE}/export/${caseId}/locations.kml`
+      filename = `case_${caseId}_locations.kml`
+      break
+    case 'zip':
+      url = `${API_BASE}/cases/${caseId}/export`
+      filename = `case_${caseId}.zip`
+      break
+    default: {
+      const _exhaustive: never = kind
+      throw new Error(`Unknown export kind: ${_exhaustive}`)
+    }
+  }
+
+  const res = await fetch(url, { headers: authHeaders() })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail ?? `Error ${res.status}`)
+  }
+  const blob = await res.blob()
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(link.href)
+}

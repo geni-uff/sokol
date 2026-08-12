@@ -1,6 +1,6 @@
 # 10 — Export em massa (CSV / VCard / KML)
 
-Status: ready-for-agent
+Status: done
 Tipo: AFK
 Prioridade: P2
 
@@ -26,11 +26,11 @@ Frontend: botões de download na aba de export/relatórios existente (verifique 
 
 ## Acceptance criteria
 
-- [ ] CSV de timeline com 100k eventos baixa sem estourar memória (streaming)
-- [ ] `.vcf` importa sem erro no Google Contacts (validar estrutura VCARD 3.0)
-- [ ] `.kml` abre no Google Earth com os pontos nas coordenadas corretas (lon,lat na ordem certa)
-- [ ] Cada export gera linha no `audit_log`
-- [ ] Não-membro do caso recebe 403 em todos os endpoints
+- [x] CSV de timeline com 100k eventos baixa sem estourar memória (streaming)
+- [x] `.vcf` importa sem erro no Google Contacts (validar estrutura VCARD 3.0)
+- [x] `.kml` abre no Google Earth com os pontos nas coordenadas corretas (lon,lat na ordem certa)
+- [x] Cada export gera linha no `audit_log`
+- [x] Não-membro do caso recebe 403 em todos os endpoints
 
 ## Blocked by
 

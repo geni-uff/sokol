@@ -26,9 +26,9 @@ Dar ao analista respostas que hoje exigem trabalho manual: "estes dois casos se 
 | 05 | Heatmaps forenses (aba Analytics) | B1 | done |
 | 06 | Detecção de anomalias na timeline | B2 | done |
 | 07 | Watchlists em tempo real na ingestão | B3 | done |
-| 08 | Comentários e anotações em casos | C1 | ready-for-agent |
+| 08 | Comentários e anotações em casos | C1 | done |
 | 09 | Relatórios PDF reais com gráficos | C2 | done |
-| 10 | Export em massa (CSV/VCard/KML) | C3 | ready-for-agent |
+| 10 | Export em massa (CSV/VCard/KML) | C3 | done |
 | 11 | Backup/restore real via API (substituir stub) | débito | ready-for-agent |
 
 Dependências: 02, 03 e 05 dependem de 01. 03 recomenda-se após 02. Demais são independentes.

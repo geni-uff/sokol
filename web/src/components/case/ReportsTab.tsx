@@ -1,10 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { FileDown, Loader2, Plus, Calendar } from 'lucide-react'
+import { FileDown, Loader2, Plus, Calendar, Download } from 'lucide-react'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { apiDownloadCaseExport, type BulkExportKind } from '@/lib/api'
 
 interface Report {
   report_id: string
@@ -56,8 +57,18 @@ async function downloadReport(caseId: string, reportId: string, format: 'html' |
   URL.revokeObjectURL(link.href)
 }
 
+const BULK_EXPORTS: { kind: BulkExportKind; label: string; hint: string }[] = [
+  { kind: 'zip', label: 'ZIP do caso', hint: 'Pacote completo (JSON)' },
+  { kind: 'timeline.csv', label: 'Timeline CSV', hint: 'Eventos em CSV' },
+  { kind: 'contacts.vcf', label: 'Contatos VCF', hint: 'vCard 3.0' },
+  { kind: 'contacts.csv', label: 'Contatos CSV', hint: 'Mesma base do VCF' },
+  { kind: 'locations.kml', label: 'Localizações KML', hint: 'Google Earth' },
+]
+
 export function ReportsTab({ caseId }: { caseId: string }) {
   const [generating, setGenerating] = useState(false)
+  const [exporting, setExporting] = useState<BulkExportKind | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   const { data: reports = [], isLoading } = useQuery({
@@ -78,6 +89,18 @@ export function ReportsTab({ caseId }: { caseId: string }) {
     },
   })
 
+  async function handleExport(kind: BulkExportKind) {
+    setExportError(null)
+    setExporting(kind)
+    try {
+      await apiDownloadCaseExport(caseId, kind)
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : 'Falha no export')
+    } finally {
+      setExporting(null)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-16">
@@ -93,6 +116,38 @@ export function ReportsTab({ caseId }: { caseId: string }) {
         title="Relatórios"
         description={`${reports.length} relatório(s) gerado(s)`}
       />
+
+      <div className="mb-8">
+        <h2 className="mb-1 text-sm font-medium text-foreground">Export em massa</h2>
+        <p className="mb-3 text-xs text-dim">
+          Downloads auditados do caso (CSV, vCard, KML e ZIP).
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {BULK_EXPORTS.map(({ kind, label, hint }) => (
+            <Button
+              key={kind}
+              variant="secondary"
+              size="sm"
+              disabled={exporting !== null}
+              title={hint}
+              onClick={() => void handleExport(kind)}
+              className="flex items-center gap-2"
+            >
+              {exporting === kind ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              {label}
+            </Button>
+          ))}
+        </div>
+        {exportError && (
+          <p className="mt-2 text-xs text-red-600" role="alert">
+            {exportError}
+          </p>
+        )}
+      </div>
 
       <div className="mb-6">
         <Button
