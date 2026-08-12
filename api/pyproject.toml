@@ -12,6 +12,7 @@ dependencies = [
     "psycopg2-binary>=2.9",
     "redis>=5.0",
     "psutil>=6.0",
+    "weasyprint>=62.0",
 ]
 
 [build-system]

@@ -27,7 +27,7 @@ Dar ao analista respostas que hoje exigem trabalho manual: "estes dois casos se 
 | 06 | Detecção de anomalias na timeline | B2 | done |
 | 07 | Watchlists em tempo real na ingestão | B3 | done |
 | 08 | Comentários e anotações em casos | C1 | ready-for-agent |
-| 09 | Relatórios PDF reais com gráficos | C2 | ready-for-agent |
+| 09 | Relatórios PDF reais com gráficos | C2 | done |
 | 10 | Export em massa (CSV/VCard/KML) | C3 | ready-for-agent |
 | 11 | Backup/restore real via API (substituir stub) | débito | ready-for-agent |
 

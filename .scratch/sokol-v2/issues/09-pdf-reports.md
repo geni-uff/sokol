@@ -1,6 +1,6 @@
 # 09 — Relatórios PDF reais com gráficos e cadeia de custódia
 
-Status: ready-for-agent
+Status: done
 Tipo: AFK
 Prioridade: P2
 
@@ -28,12 +28,18 @@ Prioridade: P2
 
 ## Acceptance criteria
 
-- [ ] `?format=pdf` baixa um PDF renderizado; `?format=html` continua funcionando igual a hoje
-- [ ] PDF contém capa, custódia (com SHA-256 por Document) e ao menos 1 gráfico SVG
-- [ ] Nenhum Indicator aparece como afirmação
-- [ ] Geração registrada no `audit_log`
-- [ ] Build do container da API passa com a nova dependência
+- [x] `?format=pdf` baixa um PDF renderizado; `?format=html` continua funcionando igual a hoje
+- [x] PDF contém capa, custódia (com SHA-256 por Document) e ao menos 1 gráfico SVG
+- [x] Nenhum Indicator aparece como afirmação
+- [x] Geração registrada no `audit_log`
+- [x] Build do container da API passa com a nova dependência
 
 ## Blocked by
 
 - 05-heatmaps-analytics (para os gráficos; se 05 não estiver pronta, entregar PDF sem gráficos e deixar este AC pendente)
+
+## Comments
+
+**2026-08-12 (implementação):** reescrito `reports.py` (tabela `reports`, WeasyPrint,
+capa/custódia/SVG heatmap+contatos, Indicators rotulados). Dockerfile com libs Pango/Cairo;
+UI Relatórios com download HTML/PDF. Smoke-test: PDF `%PDF`, audit `report.generated`.

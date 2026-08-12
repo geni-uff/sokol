@@ -1,7 +1,17 @@
 FROM python:3.12-slim
 
-# Install postgresql-client for pg_isready
-RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
+# postgresql-client: pg_isready; pango/cairo/gdk: WeasyPrint PDF rendering
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-client \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libharfbuzz-subset0 \
+    libcairo2 \
+    libgdk-pixbuf-2.0-0 \
+    libffi-dev \
+    shared-mime-info \
+    fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -18,7 +28,8 @@ RUN uv venv api/.venv && uv pip install --python api/.venv \
     "psycopg2-binary>=2.9" \
     "alembic>=1.13" \
     "redis>=5.0" \
-    "psutil>=6.0"
+    "psutil>=6.0" \
+    "weasyprint>=62.0"
 
 # Copy API source
 COPY api/src/ ./api/src/

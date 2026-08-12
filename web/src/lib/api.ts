@@ -221,10 +221,10 @@ export async function apiCreateBookmark(caseId: string, label: string, eventId?:
 }
 
 export async function apiGenerateReport(caseId: string, title: string) {
-  const res = await fetch(`${API_BASE}/reports/generate`, {
+  const res = await fetch(`${API_BASE}/reports?case_id=${encodeURIComponent(caseId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ case_id: caseId, title }),
+    body: JSON.stringify({ title }),
   })
   if (!res.ok) throw new Error('Generate report failed')
   return res.json()

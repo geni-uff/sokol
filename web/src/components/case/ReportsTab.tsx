@@ -14,12 +14,17 @@ interface Report {
   file_size: number
 }
 
+function authHeader(): Record<string, string> {
+  const token = localStorage.getItem('sokol_token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 async function apiGenerateReport(caseId: string, title: string): Promise<Report> {
   const response = await fetch(`/api/reports?case_id=${caseId}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${localStorage.getItem('token')}`,
+      ...authHeader(),
     },
     body: JSON.stringify({ title }),
   })
@@ -30,13 +35,25 @@ async function apiGenerateReport(caseId: string, title: string): Promise<Report>
 
 async function apiListReports(caseId: string): Promise<Report[]> {
   const response = await fetch(`/api/reports?case_id=${caseId}`, {
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem('token')}`,
-    },
+    headers: authHeader(),
   })
 
   if (!response.ok) throw new Error('Failed to fetch reports')
   return response.json()
+}
+
+async function downloadReport(caseId: string, reportId: string, format: 'html' | 'pdf') {
+  const url = `/api/reports/${reportId}/download?case_id=${caseId}&format=${format}`
+  const res = await fetch(url, { headers: authHeader() })
+  if (!res.ok) throw new Error(`Download ${format} failed`)
+  const blob = await res.blob()
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = `report-${reportId}.${format}`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(link.href)
 }
 
 export function ReportsTab({ caseId }: { caseId: string }) {
@@ -53,23 +70,13 @@ export function ReportsTab({ caseId }: { caseId: string }) {
     mutationFn: async () => {
       setGenerating(true)
       try {
-        await apiGenerateReport(caseId, `Report - ${new Date().toLocaleString('pt-BR')}`)
+        await apiGenerateReport(caseId, `Laudo — ${new Date().toLocaleString('pt-BR')}`)
         queryClient.invalidateQueries({ queryKey: ['reports', caseId] })
       } finally {
         setGenerating(false)
       }
     },
   })
-
-  const handleDownload = (reportId: string) => {
-    const url = `/api/reports/${reportId}/download?case_id=${caseId}`
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `report-${reportId}.html`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
 
   if (isLoading) {
     return (
@@ -117,12 +124,12 @@ export function ReportsTab({ caseId }: { caseId: string }) {
         <div className="space-y-3">
           {reports.map((report) => (
             <Card key={report.report_id} className="hover:border-border-hover">
-              <CardContent className="flex items-center justify-between py-4">
-                <div className="flex items-center gap-4 flex-1">
-                  <FileDown className="h-5 w-5 text-muted shrink-0" />
+              <CardContent className="flex items-center justify-between gap-3 py-4">
+                <div className="flex min-w-0 flex-1 items-center gap-4">
+                  <FileDown className="h-5 w-5 shrink-0 text-muted" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground truncate">
-                      Relatório de Investigação
+                    <p className="truncate text-sm font-medium text-foreground">
+                      Laudo investigativo
                     </p>
                     <div className="mt-1 flex items-center gap-3 text-xs text-dim">
                       <span className="flex items-center gap-1">
@@ -136,14 +143,22 @@ export function ReportsTab({ caseId }: { caseId: string }) {
                     </div>
                   </div>
                 </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => handleDownload(report.report_id)}
-                  className="shrink-0"
-                >
-                  Download
-                </Button>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void downloadReport(caseId, report.report_id, 'html')}
+                  >
+                    HTML
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void downloadReport(caseId, report.report_id, 'pdf')}
+                  >
+                    PDF
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}
