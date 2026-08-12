@@ -12,6 +12,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from .audit import append_audit
 from .backup_helpers import (
     backup_archive_name,
     compute_next_run,
@@ -20,6 +21,7 @@ from .backup_helpers import (
     parse_database_url,
     verify_sha256,
 )
+from .db import get_session_factory
 
 logger = logging.getLogger("sokol.backup")
 
@@ -312,4 +314,24 @@ def run_scheduled_backup_if_due() -> dict | None:
     ).isoformat()
     save_schedule(schedule)
     logger.info("Scheduled backup complete: %s", result["name"])
+
+    # Audit with null actor (system/worker)
+    try:
+        factory = get_session_factory()
+        with factory() as db:
+            append_audit(
+                db,
+                case_id=None,
+                actor_user_id=None,
+                action="backup.scheduled_run",
+                payload={
+                    "name": result["name"],
+                    "sha256": result["sha256"],
+                    "size_bytes": result["size_bytes"],
+                },
+            )
+            db.commit()
+    except Exception as e:
+        logger.warning("Could not audit scheduled backup: %s", e)
+
     return result

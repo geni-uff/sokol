@@ -133,7 +133,16 @@ def get_schedule(user: CurrentUser = Depends(get_current_user)):
     factory = get_session_factory()
     with factory() as db:
         require_platform_admin(db, user.user_id)
-        return load_schedule()
+        schedule = load_schedule()
+        append_audit(
+            db,
+            case_id=None,
+            actor_user_id=user.user_id,
+            action="backup.schedule_viewed",
+            payload={"enabled": schedule.get("enabled")},
+        )
+        db.commit()
+        return schedule
 
 
 @router.post("/restore")
@@ -156,26 +165,45 @@ def restore(
     factory = get_session_factory()
     with factory() as db:
         require_platform_admin(db, user.user_id)
-
-        try:
-            result = restore_backup(body.backup_file, target_db=body.target_db)
-        except FileNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e)) from e
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Restore failed: {e}") from e
-
+        # Audit BEFORE restore — live DROP would wipe a post-hoc audit row.
         append_audit(
             db,
             case_id=None,
             actor_user_id=user.user_id,
-            action="backup.restored",
+            action="backup.restore_requested",
             payload={
                 "backup_file": body.backup_file,
-                "target_db": result.get("target_db"),
+                "target_db": body.target_db,
                 "confirm": True,
             },
         )
         db.commit()
-        return result
+
+    try:
+        result = restore_backup(body.backup_file, target_db=body.target_db)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Restore failed: {e}") from e
+
+    # Best-effort completion audit (skipped silently if live DB was replaced)
+    try:
+        with factory() as db:
+            append_audit(
+                db,
+                case_id=None,
+                actor_user_id=user.user_id,
+                action="backup.restored",
+                payload={
+                    "backup_file": body.backup_file,
+                    "target_db": result.get("target_db"),
+                    "sanity": result.get("sanity"),
+                },
+            )
+            db.commit()
+    except Exception:
+        pass
+
+    return result
