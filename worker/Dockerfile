@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir uv
 
 # Copy requirements
 COPY worker/requirements.txt ./
-RUN uv pip install -r requirements.txt
+RUN uv pip install --system -r requirements.txt
 
 # Copy worker code
 COPY worker/ ./

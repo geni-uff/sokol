@@ -18,6 +18,7 @@ logger = logging.getLogger("sokol.worker")
 
 WORKER_ID = f"sokol-worker-{uuid.uuid4().hex[:8]}"
 POLL_INTERVAL = float(os.getenv("SOKOL_WORKER_POLL_INTERVAL", "2.0"))
+BACKUP_CHECK_INTERVAL = float(os.getenv("SOKOL_BACKUP_CHECK_INTERVAL", "300"))
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql://sokol:change_me@localhost:5433/sokol"
 )
@@ -169,11 +170,23 @@ def run_forever() -> None:
     )
 
     engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+    last_backup_check = 0.0
 
     while True:
         try:
             job = claim_next_job(engine)
             if job is None:
+                now = time.monotonic()
+                if now - last_backup_check >= BACKUP_CHECK_INTERVAL:
+                    last_backup_check = now
+                    try:
+                        from api.src.sokol.backup_service import run_scheduled_backup_if_due
+
+                        result = run_scheduled_backup_if_due()
+                        if result:
+                            logger.info("Scheduled backup created: %s", result.get("name"))
+                    except Exception as e:
+                        logger.warning("Scheduled backup check failed: %s", e)
                 time.sleep(POLL_INTERVAL)
                 continue
 

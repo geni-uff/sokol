@@ -36,6 +36,13 @@ services:
     network_mode: host
     env_file:
       - ../.env
+    volumes:
+      - ../synth/output:/data/ufdr-extract/synth:ro
+      - ../:/data/project:ro
+      - ../data/media-cache:/data/media-cache
+      - ../data/staging:/data/staging
+      - ../data/backups:/data/backups
+      - ../UFDRsTest:/ingest/inbox:ro
     environment:
       SOKOL_API_HOST: "0.0.0.0"
       SOKOL_API_PORT: "8000"
@@ -44,17 +51,14 @@ services:
       DB_HOST: localhost
       DB_PORT: "5433"
       POSTGRES_USER: ${POSTGRES_USER:-sokol}
+      SOKOL_BACKUP_DIR: ${SOKOL_BACKUP_DIR:-/data/backups}
+      SOKOL_MEDIA_CACHE_DIR: ${SOKOL_MEDIA_CACHE_DIR:-/data/media-cache}
+      SOKOL_STAGING_DIR: ${SOKOL_STAGING_DIR:-/data/staging}
     depends_on:
       sokol-postgres:
         condition: service_healthy
       sokol-redis:
         condition: service_healthy
-    volumes:
-      - ../synth/output:/data/ufdr-extract/synth:ro
-      - ../:/data/project:ro
-      - ../data/media-cache:/data/media-cache
-      - ../data/staging:/data/staging
-      - ../UFDRsTest:/ingest/inbox:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -243,6 +247,10 @@ services:
       DATABASE_URL: postgresql://sokol:change_me@localhost:5433/sokol
       REDIS_URL: redis://localhost:6379/0
       PYTHONPATH: /data/project
+      SOKOL_BACKUP_DIR: ${SOKOL_BACKUP_DIR:-/data/backups}
+      SOKOL_MEDIA_CACHE_DIR: ${SOKOL_MEDIA_CACHE_DIR:-/data/media-cache}
+      SOKOL_STAGING_DIR: ${SOKOL_STAGING_DIR:-/data/staging}
+      SOKOL_BACKUP_CHECK_INTERVAL: ${SOKOL_BACKUP_CHECK_INTERVAL:-300}
     depends_on:
       sokol-postgres:
         condition: service_healthy
@@ -252,6 +260,7 @@ services:
       - ../:/data/project:ro
       - ../data/media-cache:/data/media-cache
       - ../data/staging:/data/staging
+      - ../data/backups:/data/backups
       - ../UFDRsTest:/ingest/inbox:ro
     command: ["python", "ingest_worker.py", "1", "1"]
 

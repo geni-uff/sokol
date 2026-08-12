@@ -1,6 +1,6 @@
 # 11 — Backup/restore real via API (substituir stub)
 
-Status: ready-for-agent
+Status: done
 Tipo: AFK
 Prioridade: P2
 
@@ -23,11 +23,11 @@ Prioridade: P2
 
 ## Acceptance criteria
 
-- [ ] `POST /backup` gera um `.tar.gz` real com dump SQL restaurável + SHA-256
-- [ ] Restore em banco limpo reproduz os casos (testar com caso sintético)
-- [ ] Backup agendado dispara sozinho via worker no horário devido
-- [ ] Restore sem `confirm: true` retorna 400; não-admin recebe 403
-- [ ] Operações registradas no `audit_log`
+- [x] `POST /backup` gera um `.tar.gz` real com dump SQL restaurável + SHA-256
+- [x] Restore em banco limpo reproduz os casos (testar com caso sintético)
+- [x] Backup agendado dispara sozinho via worker no horário devido
+- [x] Restore sem `confirm: true` retorna 400; não-admin recebe 403
+- [x] Operações registradas no `audit_log`
 
 ## Blocked by
 

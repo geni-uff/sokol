@@ -29,6 +29,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 INBOX_DIR = Path(os.getenv("SOKOL_CONTAINER_INGEST_DIR", "/ingest/inbox"))
 STAGING_DIR = Path(os.getenv("SOKOL_STAGING_DIR", "/data/staging"))
+BACKUP_CHECK_INTERVAL = float(os.getenv("SOKOL_BACKUP_CHECK_INTERVAL", "300"))
 
 # ── Redis Queue ────────────────────────────────────────────────────────
 INGEST_QUEUE = "sokol:ingest:queue"
@@ -44,6 +45,7 @@ class IngestWorker:
         self.redis_client = redis.from_url(REDIS_URL, decode_responses=True)
         self.db_engine = create_engine(DATABASE_URL)
         self.shutdown_event = Event()
+        self._last_backup_check = 0.0
 
         # Signal handlers for graceful shutdown
         signal.signal(signal.SIGTERM, self._on_shutdown)
@@ -65,6 +67,7 @@ class IngestWorker:
                 result = self.redis_client.brpop(INGEST_QUEUE, timeout=5)
 
                 if result is None:
+                    self._maybe_run_scheduled_backup()
                     continue
 
                 _key, job_json = result
@@ -80,6 +83,23 @@ class IngestWorker:
                 time.sleep(1)
 
         logger.info(f"Worker {self.worker_id} stopped")
+
+    def _maybe_run_scheduled_backup(self) -> None:
+        """Honour persisted backup schedule (only worker 1 to avoid duplicates)."""
+        if self.worker_id != 1:
+            return
+        now = time.monotonic()
+        if now - self._last_backup_check < BACKUP_CHECK_INTERVAL:
+            return
+        self._last_backup_check = now
+        try:
+            from api.src.sokol.backup_service import run_scheduled_backup_if_due
+
+            result = run_scheduled_backup_if_due()
+            if result:
+                logger.info(f"Scheduled backup created: {result.get('name')}")
+        except Exception as e:
+            logger.warning(f"Scheduled backup check failed: {e}")
 
     def _process_job(self, job: dict):
         """Process a single ingest job."""
