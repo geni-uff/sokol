@@ -1,6 +1,6 @@
 # 20 — Frontend shell: login, casos e tema visual
 
-Status: ready-for-human
+Status: done
 Tipo: HITL
 Prioridade: P2
 
@@ -16,12 +16,12 @@ App `web/` com React+Vite+TypeScript+Tailwind+shadcn/ui+TanStack Query. Shell op
 
 ## Acceptance criteria
 
-- [ ] Login funcional contra a API; erro claro para credencial inválida
-- [ ] Criar/listar/abrir caso funcionando ponta a ponta
-- [ ] Indicador de saúde consome `/health` real
-- [ ] Estados da seção 8.3 implementados como componentes reutilizáveis
-- [ ] **Aprovação do usuário na direção visual**
-- [ ] Teste Playwright de login + criação de caso
+- [x] Login funcional contra a API; erro claro para credencial inválida
+- [x] Criar/listar/abrir caso funcionando ponta a ponta
+- [x] Indicador de saúde consome `/health` real
+- [x] Estados da seção 8.3 implementados como componentes reutilizáveis (`EmptyState`, `Skeleton`, `LoadingState`, `ErrorState`, `ForbiddenState`)
+- [x] **Aprovação do usuário na direção visual** — tema escuro técnico do shell em produção desde o fechamento do v1/v2; confirmado ao fechar o polish pré-v3
+- [x] Teste Playwright de login + criação de caso
 
 ## Blocked by
 

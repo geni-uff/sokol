@@ -4,10 +4,11 @@ Plataforma forense local: ingere evidências digitais (UFDR Cellebrite, document
 
 **Este arquivo é a fonte canônica de instruções.** Se outro documento contradisser este, este vence.
 
-## Estado atual (2026-07-12)
+## Estado atual (2026-08-12)
 
 - Sistema **implementado e funcional** (v0.3.x): API FastAPI, frontend React, worker de ingestão, 6 serviços ML, Postgres 16 (pgvector + postgis), Redis.
-- Backlog ativo: `.scratch/sokol-v2/` (issues 01–10). O backlog v1 (`.scratch/sokol-v1/`) está concluído, exceto a issue 20 (`ready-for-human`).
+- Backlog **sokol-v2** (`.scratch/sokol-v2/`, issues 01–11) está **concluído**. Próximo ciclo: abrir `sokol-v3` quando houver PRD.
+- Backlog v1 (`.scratch/sokol-v1/`) está concluído, inclusive a issue 20 (frontend shell).
 - `TASKS.md` e tudo em `docs/archive/` são **históricos** — não execute instruções deles.
 
 ## Mapa de diretórios
@@ -116,10 +117,11 @@ Login padrão de dev: `admin` / `admin123`.
 
 ## Lacunas conhecidas (não são bugs novos)
 
-- Relatórios: geração é HTML; PDF de verdade ficou adiado (`reports.py`).
-- Backup via API (`case_backup.py`) é stub — agenda/lista, mas não executa backup real.
-- `api/tests/` vazio; E2E cobre só auth e cases.
-- Issue v1 nº 20 (frontend shell) está `ready-for-human`.
+- Assinatura digital de laudos (RSA) — fora de escopo até decisão de produto/jurídica.
+- Clustering ML de entidades — v2 usa matching determinístico; ML só se insuficiente.
+- Suite Python ainda pequena (`api/tests/` cobre formatadores de export e helpers de backup); E2E Playwright cobre auth + cases (stack precisa estar de pé).
+- Backup: staging entra no tar em modo `auto` só se ≤ `SOKOL_BACKUP_STAGING_MAX_MB` (default 2048); force com `SOKOL_BACKUP_INCLUDE_STAGING=1`.
+- Ops de plataforma (`/backup/*`) exigem `users.is_platform_admin` (seed: usuário `admin`).
 
 ## Agent skills
 

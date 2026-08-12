@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 
 test.describe('Authentication', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:5175/login')
+    await page.goto('/login')
   })
 
   test('should show login form', async ({ page }) => {
@@ -16,31 +16,27 @@ test.describe('Authentication', () => {
     await page.getByLabel(/password/i).fill('wrongpass')
     await page.getByRole('button', { name: /login|entrar/i }).click()
 
-    await expect(page.getByText(/invalid|error|incorrect/i)).toBeVisible()
+    await expect(page.getByText(/invalid|error|incorrect|credencial|senha/i)).toBeVisible()
   })
 
   test('should login with valid credentials', async ({ page }) => {
-    // Default credentials from setup
     await page.getByLabel(/email|username/i).fill('admin')
     await page.getByLabel(/password/i).fill('admin123')
     await page.getByRole('button', { name: /login|entrar/i }).click()
 
-    // Should navigate to cases page
     await expect(page).toHaveURL(/\/cases/)
     await expect(page.getByText(/casos|cases/i)).toBeVisible()
   })
 
-  test('should persist session token', async ({ page, context }) => {
-    // Login
+  test('should persist session token', async ({ page }) => {
     await page.getByLabel(/email|username/i).fill('admin')
     await page.getByLabel(/password/i).fill('admin123')
     await page.getByRole('button', { name: /login|entrar/i }).click()
+    await page.waitForURL(/\/cases/)
 
-    // Check localStorage
-    const token = await page.evaluate(() => localStorage.getItem('token'))
+    const token = await page.evaluate(() => localStorage.getItem('sokol_token'))
     expect(token).toBeTruthy()
 
-    // Reload and should stay logged in
     await page.reload()
     await expect(page).toHaveURL(/\/cases/)
   })

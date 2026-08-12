@@ -85,3 +85,13 @@ def require_case_member(db: Session, case_id: UUID, user_id: UUID, roles: list[s
     if roles and role not in roles:
         raise HTTPException(status_code=403, detail=f"Requires role: {', '.join(roles)}")
     return role
+
+
+def require_platform_admin(db: Session, user_id: UUID) -> None:
+    """Require users.is_platform_admin — not merely admin of one case."""
+    row = db.execute(
+        text("SELECT is_platform_admin FROM users WHERE id = :uid"),
+        {"uid": user_id},
+    ).fetchone()
+    if row is None or not row[0]:
+        raise HTTPException(status_code=403, detail="Platform admin role required")

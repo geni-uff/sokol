@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -28,11 +29,9 @@ logger = logging.getLogger("sokol.backup")
 BACKUP_DIR = Path(os.getenv("SOKOL_BACKUP_DIR", "/data/backups"))
 MEDIA_CACHE_DIR = Path(os.getenv("SOKOL_MEDIA_CACHE_DIR", "/data/media-cache"))
 STAGING_DIR = Path(os.getenv("SOKOL_STAGING_DIR", "/data/staging"))
-INCLUDE_STAGING = os.getenv("SOKOL_BACKUP_INCLUDE_STAGING", "0").lower() in (
-    "1",
-    "true",
-    "yes",
-)
+INCLUDE_STAGING = os.getenv("SOKOL_BACKUP_INCLUDE_STAGING", "auto")  # noqa: kept for callers
+# Auto-include staging when under this size (MB) when INCLUDE_STAGING=auto
+STAGING_MAX_MB = int(os.getenv("SOKOL_BACKUP_STAGING_MAX_MB", "2048"))
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql://sokol:change_me@localhost:5433/sokol"
 )
@@ -93,6 +92,61 @@ def list_backup_archives() -> list[dict]:
     return items
 
 
+def _dir_size_bytes(path: Path) -> int:
+    total = 0
+    if not path.exists():
+        return 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += (Path(root) / name).stat().st_size
+            except OSError:
+                continue
+    return total
+
+
+def _should_include_staging() -> bool:
+    """Include staging when forced, or when under SOKOL_BACKUP_STAGING_MAX_MB."""
+    flag = os.getenv("SOKOL_BACKUP_INCLUDE_STAGING", "auto").lower()
+    if flag in ("1", "true", "yes"):
+        return True
+    if flag in ("0", "false", "no"):
+        return False
+    # auto
+    if not STAGING_DIR.exists():
+        return False
+    size_mb = _dir_size_bytes(STAGING_DIR) / (1024 * 1024)
+    if size_mb <= STAGING_MAX_MB:
+        return True
+    logger.warning(
+        "Skipping staging in backup (%.0f MB > max %s MB); set SOKOL_BACKUP_INCLUDE_STAGING=1 to force",
+        size_mb,
+        STAGING_MAX_MB,
+    )
+    return False
+
+
+def replace_directory_contents(src: Path, dest: Path) -> dict:
+    """Replace dest contents with src tree. Returns stats."""
+    if not src.exists():
+        return {"copied": False, "reason": "source_missing"}
+    dest.mkdir(parents=True, exist_ok=True)
+    for item in list(dest.iterdir()):
+        if item.is_dir():
+            shutil.rmtree(item)
+        else:
+            item.unlink(missing_ok=True)
+    count = 0
+    for item in src.iterdir():
+        target = dest / item.name
+        if item.is_dir():
+            shutil.copytree(item, target)
+        else:
+            shutil.copy2(item, target)
+        count += 1
+    return {"copied": True, "entries": count}
+
+
 def _pg_env(parts: dict[str, str]) -> dict[str, str]:
     env = os.environ.copy()
     env["PGPASSWORD"] = parts["password"]
@@ -100,13 +154,14 @@ def _pg_env(parts: dict[str, str]) -> dict[str, str]:
 
 
 def create_backup(*, include_media: bool = True) -> dict:
-    """Create sokol_backup_YYYYMMDD_HHMMSS.tar.gz with DB dump (+ media; staging opt-in)."""
+    """Create sokol_backup_YYYYMMDD_HHMMSS.tar.gz with DB dump (+ media; staging if allowed)."""
     root = backup_dir()
     when = datetime.now(timezone.utc)
     archive_name = backup_archive_name(when)
     archive_path = root / archive_name
     sha_path = Path(str(archive_path) + ".sha256")
     parts = parse_database_url(DATABASE_URL)
+    include_staging = _should_include_staging()
 
     with tempfile.TemporaryDirectory(prefix="sokol-backup-") as tmp:
         tmp_path = Path(tmp)
@@ -115,7 +170,7 @@ def create_backup(*, include_media: bool = True) -> dict:
             "created_at": when.isoformat(),
             "database": parts["dbname"],
             "include_media": include_media,
-            "include_staging": INCLUDE_STAGING,
+            "include_staging": include_staging,
             "format": "pg_dump_custom+tar",
         }
         (tmp_path / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -137,7 +192,7 @@ def create_backup(*, include_media: bool = True) -> dict:
             tar.add(tmp_path / "manifest.json", arcname="manifest.json")
             if include_media and MEDIA_CACHE_DIR.exists():
                 tar.add(MEDIA_CACHE_DIR, arcname="media-cache")
-            if INCLUDE_STAGING and STAGING_DIR.exists():
+            if include_staging and STAGING_DIR.exists():
                 tar.add(STAGING_DIR, arcname="staging")
 
     digest = file_sha256(archive_path)
@@ -179,12 +234,19 @@ def resolve_backup_file(backup_file: str) -> Path:
     return path
 
 
-def restore_backup(backup_file: str, *, target_db: str | None = None) -> dict:
+def restore_backup(
+    backup_file: str,
+    *,
+    target_db: str | None = None,
+    restore_media: bool = True,
+) -> dict:
     """
     Restore from a .tar.gz backup.
 
     WARNING: when target_db is None (or equals the live DATABASE_URL dbname),
-    the live database is dropped and recreated.
+    the live database is dropped and recreated. When restore_media is True and
+    the archive contains media-cache/staging, those directories are also replaced
+    on the live host paths (only when restoring the live database).
     """
     archive = resolve_backup_file(backup_file)
     sha_path = Path(str(archive) + ".sha256")
@@ -199,6 +261,8 @@ def restore_backup(backup_file: str, *, target_db: str | None = None) -> dict:
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", restore_db):
         raise ValueError(f"Invalid target database name: {restore_db}")
     env = _pg_env(parts)
+    is_live = restore_db == parts["dbname"]
+    media_stats: dict = {"media_cache": None, "staging": None}
 
     with tempfile.TemporaryDirectory(prefix="sokol-restore-") as tmp:
         tmp_path = Path(tmp)
@@ -226,7 +290,6 @@ def restore_backup(backup_file: str, *, target_db: str | None = None) -> dict:
         for cmd in admin_cmds:
             subprocess.run(cmd, env=env, check=True, capture_output=True)
 
-        # Enable extensions commonly required
         for ext in ("vector", "postgis"):
             subprocess.run(
                 [
@@ -257,8 +320,19 @@ def restore_backup(backup_file: str, *, target_db: str | None = None) -> dict:
             capture_output=True,
             text=True,
         )
-        # pg_restore returns non-zero on some benign warnings; check cases table
         sanity = _sanity_counts(parts, restore_db, env)
+        if sanity.get("cases_count") == "error":
+            raise ValueError(
+                f"Restore failed sanity check (cases unreachable); pg_restore={result.returncode}"
+            )
+
+        if restore_media and is_live:
+            media_stats["media_cache"] = replace_directory_contents(
+                tmp_path / "media-cache", MEDIA_CACHE_DIR
+            )
+            media_stats["staging"] = replace_directory_contents(
+                tmp_path / "staging", STAGING_DIR
+            )
 
     return {
         "status": "restored",
@@ -266,6 +340,7 @@ def restore_backup(backup_file: str, *, target_db: str | None = None) -> dict:
         "target_db": restore_db,
         "sha256_ok": True,
         "sanity": sanity,
+        "media_restored": media_stats if (restore_media and is_live) else None,
         "pg_restore_returncode": result.returncode,
         "warnings": [
             line for line in (result.stderr or "").splitlines() if line.strip()

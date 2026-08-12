@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from .audit import append_audit
-from .auth import CurrentUser, get_current_user
+from .auth import CurrentUser, get_current_user, require_platform_admin
 from .backup_helpers import compute_next_run
 from .backup_service import (
     create_backup,
@@ -35,20 +32,7 @@ class RestoreRequest(BaseModel):
     backup_file: str
     confirm: bool = False
     target_db: str | None = None
-
-
-def require_platform_admin(db: Session, user_id: UUID) -> None:
-    """Admin-only: user must hold role=admin on at least one case."""
-    row = db.execute(
-        text("""
-            SELECT 1 FROM case_members
-            WHERE user_id = :uid AND role = 'admin'
-            LIMIT 1
-        """),
-        {"uid": user_id},
-    ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=403, detail="Admin role required")
+    restore_media: bool = True
 
 
 @router.post("")
@@ -180,7 +164,11 @@ def restore(
         db.commit()
 
     try:
-        result = restore_backup(body.backup_file, target_db=body.target_db)
+        result = restore_backup(
+            body.backup_file,
+            target_db=body.target_db,
+            restore_media=body.restore_media,
+        )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:

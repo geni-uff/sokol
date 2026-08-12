@@ -26,7 +26,7 @@ interface MonitoringResponse {
 
 async function apiGetMonitoringStatus(): Promise<MonitoringResponse> {
   const response = await fetch('/api/ops/monitoring/status', {
-    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+    headers: { Authorization: `Bearer ${localStorage.getItem('sokol_token')}` },
   })
   if (!response.ok) throw new Error('Failed to fetch monitoring status')
   return response.json()
