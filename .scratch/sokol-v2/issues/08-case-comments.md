@@ -1,6 +1,6 @@
 # 08 — Comentários e anotações em casos
 
-Status: ready-for-agent
+Status: done
 Tipo: AFK
 Prioridade: P2
 
@@ -52,15 +52,15 @@ deleted boolean not null default false
 
 ## Acceptance criteria
 
-- [ ] Migração cria `case_comments` (upgrade + downgrade limpos)
-- [ ] Analista comenta em evento; comentário aparece na timeline com autor e data
-- [ ] Comentário de caso aparece no painel de notas
-- [ ] Leitor vê comentários mas recebe 403 ao tentar criar/editar/deletar
-- [ ] Não-membro do caso recebe 403 até para leitura
-- [ ] Soft-delete: some da UI, permanece no banco; operação no `audit_log`
-- [ ] Editar seta `edited_at` e mostra "(editado)" na UI
-- [ ] `target_id` de outro caso é rejeitado (422/404)
-- [ ] Relatório gerado não contém nenhum comentário
+- [x] Migração cria `case_comments` (upgrade + downgrade limpos)
+- [x] Analista comenta em evento; comentário aparece na timeline com autor e data
+- [x] Comentário de caso aparece no painel de notas
+- [x] Leitor vê comentários mas recebe 403 ao tentar criar/editar/deletar
+- [x] Não-membro do caso recebe 403 até para leitura
+- [x] Soft-delete: some da UI, permanece no banco; operação no `audit_log`
+- [x] Editar seta `edited_at` e mostra "(editado)" na UI
+- [x] `target_id` de outro caso é rejeitado (422/404)
+- [x] Relatório gerado não contém nenhum comentário
 
 ## Blocked by
 
@@ -73,3 +73,7 @@ None — can start immediately
 (3) comentários nunca entram no laudo (usar Bookmark para isso);
 (4) Leitor pode ler, não pode escrever. Status promovido de `needs-triage`
 para `ready-for-agent`.
+
+**2026-08-12 (implementação):** migração `016`, router `comments.py`, painel na aba Dados
+e toggle de notas na timeline (`MapTab`). Smoke-test API: create/list/edit/soft-delete,
+403 leitor, 404 target cross-case, audit_log.

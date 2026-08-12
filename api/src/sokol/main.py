@@ -55,6 +55,7 @@ from .entity_resolution import router as entity_resolution_router
 from .conversations import router as conversations_router
 from .analytics import router as analytics_router
 from .anomalies import router as anomalies_router
+from .comments import router as comments_router
 
 app.include_router(cases_router)
 app.include_router(jobs_router)
@@ -84,6 +85,7 @@ app.include_router(entity_resolution_router)
 app.include_router(conversations_router)
 app.include_router(analytics_router)
 app.include_router(anomalies_router)
+app.include_router(comments_router)
 
 
 # ── Auth endpoints ────────────────────────────────────────────────────────

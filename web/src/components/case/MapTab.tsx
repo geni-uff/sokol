@@ -1,13 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
-import { apiGeoEvents, apiTimeline, type GeoEvent, type Event } from '@/lib/api'
-import { useEffect, useRef, useState } from 'react'
-import { MapPin, Globe, Clock, Loader2, Layers } from 'lucide-react'
+import { apiGeoEvents, apiTimeline, apiListComments, type GeoEvent, type Event } from '@/lib/api'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { MapPin, Clock, Loader2, Layers } from 'lucide-react'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/cn'
+import { EventCommentToggle } from '@/components/case/CaseCommentsPanel'
 import 'leaflet/dist/leaflet.css'
 
 
@@ -153,8 +154,21 @@ export function MapTab({ caseId }: { caseId: string }) {
     enabled: !!caseId,
   })
 
+  const { data: eventCommentsData } = useQuery({
+    queryKey: ['comments', caseId, 'event'],
+    queryFn: () => apiListComments(caseId, { target_kind: 'event' }),
+    enabled: !!caseId,
+  })
+
   const events = timelineData?.events ?? []
   const total = timelineData?.total ?? 0
+  const commentCounts = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const c of eventCommentsData?.comments ?? []) {
+      if (c.target_id) map[c.target_id] = (map[c.target_id] ?? 0) + 1
+    }
+    return map
+  }, [eventCommentsData])
 
   const KIND_ICONS: Record<string, string> = {
     message: '💬',
@@ -409,6 +423,11 @@ export function MapTab({ caseId }: { caseId: string }) {
                             <span className="font-medium text-muted">{event.counterpart}</span>
                           </p>
                         )}
+                        <EventCommentToggle
+                          caseId={caseId}
+                          eventId={event.id}
+                          count={commentCounts[event.id] ?? 0}
+                        />
                       </div>
                     </CardContent>
                   </Card>

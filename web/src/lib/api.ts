@@ -915,3 +915,83 @@ export async function apiWatchlistHitsSummary(caseId: string): Promise<Watchlist
   if (!res.ok) return { total_hits: 0, unacknowledged: 0, watchlists_with_hits: 0 }
   return res.json()
 }
+
+// ── Comments (working notes — never in laudo) ─────────────────────────────
+export type CommentTargetKind = 'case' | 'event' | 'media'
+
+export interface CaseComment {
+  id: string
+  case_id: string
+  author_user_id: string
+  author_username: string
+  target_kind: CommentTargetKind
+  target_id: string | null
+  body: string
+  created_at: string
+  edited_at: string | null
+}
+
+export interface CommentListResponse {
+  comments: CaseComment[]
+  viewer_role: string
+  viewer_user_id: string
+  can_write: boolean
+}
+
+export async function apiListComments(
+  caseId: string,
+  opts?: { target_kind?: CommentTargetKind; target_id?: string },
+): Promise<CommentListResponse> {
+  const params = new URLSearchParams()
+  if (opts?.target_kind) params.set('target_kind', opts.target_kind)
+  if (opts?.target_id) params.set('target_id', opts.target_id)
+  const qs = params.toString()
+  const res = await fetch(`${API_BASE}/comments/${caseId}${qs ? `?${qs}` : ''}`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail ?? `Error ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function apiCreateComment(
+  caseId: string,
+  body: { target_kind: CommentTargetKind; target_id?: string | null; body: string },
+): Promise<CaseComment> {
+  const res = await fetch(`${API_BASE}/comments/${caseId}`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail ?? `Error ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function apiUpdateComment(commentId: string, body: string): Promise<CaseComment> {
+  const res = await fetch(`${API_BASE}/comments/${commentId}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail ?? `Error ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function apiDeleteComment(commentId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/comments/${commentId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail ?? `Error ${res.status}`)
+  }
+}

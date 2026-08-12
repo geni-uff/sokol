@@ -86,6 +86,7 @@ import { CrossCaseTab } from '@/components/case/CrossCaseTab'
 import { EntityResolutionTab } from '@/components/case/EntityResolutionTab'
 import { ConversasTab } from '@/components/case/ConversasTab'
 import { AnalyticsTab } from '@/components/case/AnalyticsTab'
+import { CaseCommentsPanel } from '@/components/case/CaseCommentsPanel'
 
 const NAV_ITEMS = [
   { icon: BarChart3, label: 'Timeline', id: 'timeline' },
@@ -257,7 +258,9 @@ export default function CaseDetail() {
       {activeTab === 'search' && <SearchTab caseId={caseId!} />}
       {activeTab === 'chat' && <ChatTab caseId={caseId!} />}
       {activeTab === 'conversas' && <ConversasTab caseId={caseId!} />}
-      {activeTab === 'data' && <DataTab stats={stats} isLoading={statsLoading} />}
+      {activeTab === 'data' && (
+        <DataTab caseId={caseId!} stats={stats} isLoading={statsLoading} />
+      )}
       {activeTab === 'bookmarks' && <BookmarksTab caseId={caseId!} />}
       {activeTab === 'watchlists' && <WatchlistsTab caseId={caseId!} />}
       {activeTab === 'pendencias' && <PendenciasTab caseId={caseId!} />}
@@ -489,7 +492,15 @@ function ChatTab({ caseId }: { caseId: string }) {
   )
 }
 
-function DataTab({ stats, isLoading }: { stats: CaseStats | undefined; isLoading: boolean }) {
+function DataTab({
+  caseId,
+  stats,
+  isLoading,
+}: {
+  caseId: string
+  stats: CaseStats | undefined
+  isLoading: boolean
+}) {
   const items = [
     { label: 'Eventos', value: stats?.events ?? 0, icon: BarChart3 },
     { label: 'Mensagens', value: stats?.messages ?? 0, icon: MessageSquare },
@@ -522,6 +533,19 @@ function DataTab({ stats, isLoading }: { stats: CaseStats | undefined; isLoading
               </Card>
             ))}
       </div>
+      <Card className="mt-8">
+        <CardContent className="py-5">
+          <CaseCommentsPanel
+            caseId={caseId}
+            targetKind="case"
+            title="Notas do caso"
+          />
+          <p className="mt-3 text-xs text-dim">
+            Notas internas de trabalho — não entram em laudo. Use Bookmark se o conteúdo for
+            para o relatório.
+          </p>
+        </CardContent>
+      </Card>
     </>
   )
 }
