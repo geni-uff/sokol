@@ -120,3 +120,17 @@ Login padrão de dev: `admin` / `admin123`.
 - Backup via API (`case_backup.py`) é stub — agenda/lista, mas não executa backup real.
 - `api/tests/` vazio; E2E cobre só auth e cases.
 - Issue v1 nº 20 (frontend shell) está `ready-for-human`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues e PRDs vivem como markdown em `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Papéis canônicos via linha `Status:` em cada issue (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` na raiz. See `docs/agents/domain.md`.
