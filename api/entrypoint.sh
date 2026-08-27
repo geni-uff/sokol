@@ -26,6 +26,9 @@ echo "SOKOL: PostgreSQL is ready."
 # Run migrations
 alembic upgrade head
 
+echo "SOKOL: Ensuring bootstrap admin user..."
+python -m api.src.sokol.ensure_admin
+
 echo "SOKOL: Migrations complete. Starting API..."
 
 exec "$@"

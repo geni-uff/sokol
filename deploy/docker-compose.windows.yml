@@ -38,6 +38,9 @@ services:
       SOKOL_BACKUP_DIR: ${SOKOL_BACKUP_DIR:-/data/backups}
       SOKOL_MEDIA_CACHE_DIR: ${SOKOL_MEDIA_CACHE_DIR:-/data/media-cache}
       SOKOL_STAGING_DIR: ${SOKOL_STAGING_DIR:-/data/staging}
+      # Garante admin/admin123 no Desktop (seed antigo usava senha "admin").
+      SOKOL_BOOTSTRAP_ADMIN_PASSWORD: admin123
+      SOKOL_BOOTSTRAP_ADMIN_RESET: "1"
     # Migrations + cold start no Desktop demoram; healthcheck curto marca unhealthy
     # e o sokol-web falha com "dependency sokol-api failed to start".
     healthcheck:

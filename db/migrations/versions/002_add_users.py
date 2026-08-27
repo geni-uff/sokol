@@ -26,15 +26,14 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
 
-    # Seed default admin user (password: admin — change in production)
+    # Seed default admin (password: admin123 — matches README / E2E)
     from argon2 import PasswordHasher
     ph = PasswordHasher()
-    import hashlib
     from datetime import datetime, timezone
     from uuid import uuid4
 
     admin_id = uuid4()
-    pw_hash = ph.hash("admin")
+    pw_hash = ph.hash("admin123")
     now = datetime.now(timezone.utc)
     op.execute(f"""
         INSERT INTO users (id, username, password_hash, display_name, created_at)

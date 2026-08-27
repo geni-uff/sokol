@@ -106,8 +106,16 @@ export async function apiLogin(username: string, password: string): Promise<Logi
     body: JSON.stringify({ username, password }),
   })
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: 'Login failed' }))
-    throw new Error(err.detail || 'Credenciais inválidas')
+    const raw = await res.text()
+    let detail = ''
+    try {
+      const parsed = JSON.parse(raw) as { detail?: unknown }
+      if (typeof parsed.detail === 'string') detail = parsed.detail
+      else if (parsed.detail != null) detail = JSON.stringify(parsed.detail)
+    } catch {
+      detail = raw.trim().slice(0, 160)
+    }
+    throw new Error(detail || `Login falhou (HTTP ${res.status})`)
   }
   return res.json()
 }
