@@ -43,13 +43,14 @@ COPY db/migrations/ ./migrations/
 # Copy alembic.ini
 COPY db/alembic.ini ./
 
-# Copy entrypoint
+# Copy entrypoint (strip CRLF — checkout no Windows quebra o shebang:
+# "exec ./entrypoint.sh: no such file or directory")
 COPY api/entrypoint.sh ./
-RUN chmod +x entrypoint.sh
+RUN sed -i 's/\r$//' entrypoint.sh && chmod +x entrypoint.sh
 
 ENV PATH="/app/api/.venv/bin:$PATH"
 
 EXPOSE 8000
 
-ENTRYPOINT ["./entrypoint.sh"]
+ENTRYPOINT ["/bin/bash", "/app/entrypoint.sh"]
 CMD ["uvicorn", "api.src.sokol.main:app", "--host", "0.0.0.0", "--port", "8000"]

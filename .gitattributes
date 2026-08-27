@@ -1,0 +1,7 @@
+# Evita CRLF em scripts Unix (Docker Desktop no Windows).
+# Sem isto o shebang vira /bin/bash\r → "exec ... no such file or directory".
+*.sh text eol=lf
+**/entrypoint.sh text eol=lf
+
+# Batch Windows
+*.bat text eol=crlf
