@@ -28,6 +28,8 @@ import {
   apiDeleteWatchlist,
   apiToggleWatchlist,
   apiBackfillChunks,
+  apiEmbedStatus,
+  apiLaunchEmbed,
   apiListAgenda,
   apiBackfillContacts,
   getMediaUrl,
@@ -297,6 +299,62 @@ export default function CaseDetail() {
   )
 }
 
+function embedBusy(status?: string) {
+  return status === 'pending' || status === 'running'
+}
+
+function EmbedIndexControls({ caseId, compact = false }: { caseId: string; compact?: boolean }) {
+  const queryClient = useQueryClient()
+  const { data } = useQuery({
+    queryKey: ['embedStatus', caseId],
+    queryFn: () => apiEmbedStatus(caseId),
+    refetchInterval: (q) => (embedBusy(q.state.data?.status) ? 3000 : false),
+  })
+  const mut = useMutation({
+    mutationFn: () => apiLaunchEmbed(caseId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['embedStatus', caseId] })
+      queryClient.invalidateQueries({ queryKey: ['stats', caseId] })
+    },
+  })
+  const chunksEmb = data?.chunks_embedded ?? 0
+  const chunksTot = data?.chunks_total ?? 0
+  const eventsEmb = data?.events_embedded ?? 0
+  const eventsTot = data?.events_total ?? 0
+  const vectorsReady = chunksTot > 0 && chunksEmb >= chunksTot && eventsEmb >= eventsTot
+  const label = embedBusy(data?.status)
+    ? `Indexando ${data?.stage ?? ''} ${data?.done ?? 0}/${data?.total ?? 0}`
+    : vectorsReady
+      ? 'Vetores prontos'
+      : 'Indexar vetores'
+
+  return (
+    <div className={cn('flex flex-wrap items-center gap-3', compact && 'text-xs')}>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={mut.isPending || embedBusy(data?.status) || vectorsReady}
+        onClick={() => mut.mutate()}
+      >
+        {mut.isPending || embedBusy(data?.status) ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : null}
+        {label}
+      </Button>
+      <span className="text-xs text-dim">
+        chunks {chunksEmb.toLocaleString()}/{chunksTot.toLocaleString()} · eventos{' '}
+        {eventsEmb.toLocaleString()}/{eventsTot.toLocaleString()}
+      </span>
+      {data?.error ? <span className="text-xs text-danger">{data.error}</span> : null}
+      {mut.isError ? (
+        <span className="text-xs text-danger">
+          {mut.error instanceof Error ? mut.error.message : 'Falha ao enfileirar'}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
 function SearchTab({ caseId }: { caseId: string }) {
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
@@ -340,9 +398,12 @@ function SearchTab({ caseId }: { caseId: string }) {
         title="Busca Avançada"
         description="Busque informações nos dados do caso"
         actions={
-          <Button variant="secondary" size="sm" onClick={handleIndex}>
-            Indexar texto
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <EmbedIndexControls caseId={caseId} />
+            <Button variant="secondary" size="sm" onClick={handleIndex}>
+              Indexar texto
+            </Button>
+          </div>
         }
       />
 
@@ -462,12 +523,15 @@ function ChatTab({ caseId }: { caseId: string }) {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="space-y-5 px-10 py-10 lg:px-14">
           {history.length === 0 && (
-            <EmptyState
-              icon={MessageSquare}
-              title="Nenhuma pergunta ainda"
-              description="Digite uma pergunta para começar a análise."
-              size="compact"
-            />
+            <div className="space-y-6">
+              <EmbedIndexControls caseId={caseId} />
+              <EmptyState
+                icon={MessageSquare}
+                title="Nenhuma pergunta ainda"
+                description="O Agent busca no caso via SQL e vetores. Sem vetores, só encontra o que as ferramentas SQL devolverem (até 50 linhas)."
+                size="compact"
+              />
+            </div>
           )}
           {history.map((msg, i) => (
             <div key={i} className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>

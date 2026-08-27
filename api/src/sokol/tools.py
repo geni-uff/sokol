@@ -403,7 +403,7 @@ def semantic_search(db, params: SemanticSearchParams) -> ToolResult:
     """Semantic search across chunks."""
     from .search import search_hybrid
 
-    result = search_hybrid(db, params.case_id, params.query, params.k, "vector")
+    result = search_hybrid(db, params.case_id, params.query, params.k, "hybrid")
 
     data = []
     sources = []

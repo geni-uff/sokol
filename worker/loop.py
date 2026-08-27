@@ -16,8 +16,10 @@ from sqlalchemy.orm import sessionmaker
 
 try:
     from .ufdr_parser import process_ufdr
+    from .embed_index import run_embed_case
 except ImportError:
     from ufdr_parser import process_ufdr
+    from embed_index import run_embed_case
 
 logger = logging.getLogger("sokol.worker")
 
@@ -109,9 +111,53 @@ def process_job(engine, job: dict) -> None:
 
     if kind == "ingest":
         _process_ingest(engine, job_id, case_id, payload)
+    elif kind == "embed":
+        _process_embed(engine, job_id, case_id, payload)
     else:
         logger.warning(f"Unknown job kind: {kind}")
         complete_job(engine, job_id, "failed", f"Unknown job kind: {kind}")
+
+
+def _process_embed(engine, job_id, case_id, payload: dict) -> None:
+    """Fill NULL chunk/event embeddings (LM Studio, then sokol-embed). Case-scoped."""
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    def _progress(stage: str, done: int, total: int) -> None:
+        heartbeat_job(engine, job_id)
+        logger.info(f"[{job_id}] embed {stage}: {done}/{total}")
+        with engine.connect() as conn:
+            conn.execute(
+                text("""
+                    UPDATE jobs
+                    SET payload = CAST(:payload AS jsonb),
+                        heartbeat_at = now(),
+                        updated_at = now()
+                    WHERE id = :id
+                """),
+                {
+                    "id": job_id,
+                    "payload": json.dumps(
+                        {
+                            **(payload if isinstance(payload, dict) else {}),
+                            "stage": stage,
+                            "done": done,
+                            "total": total,
+                        }
+                    ),
+                },
+            )
+            conn.commit()
+
+    try:
+        result = run_embed_case(db, case_id, on_progress=_progress)
+        logger.info(f"[{job_id}] embed done: {result}")
+        complete_job(engine, job_id, "done")
+    except Exception as e:
+        logger.exception(f"[{job_id}] embed failed")
+        complete_job(engine, job_id, "failed", str(e)[:500])
+    finally:
+        db.close()
 
 
 def _process_ingest(engine, job_id, case_id, payload: dict) -> None:

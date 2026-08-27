@@ -19,7 +19,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from .auth import CurrentUser, get_current_user, require_platform_admin
+from .auth import CurrentUser, get_current_user, require_case_member, require_platform_admin
+from .audit import append_audit
 from .chunk_jobs import chunk_messages
 from .db import get_session_factory
 from .jobs import emit_progress
@@ -778,10 +779,14 @@ async def launch_pipeline(
 
 
 @router.post("/chunk/{case_id}")
-def backfill_chunks(case_id: str):
+def backfill_chunks(
+    case_id: str,
+    user: CurrentUser = Depends(get_current_user),
+):
     """Build message chunks when ingest skipped them (lexical search backfill)."""
     factory = get_session_factory()
     with factory() as db:
+        require_case_member(db, UUID(case_id), user.user_id)
         case = db.execute(
             text("SELECT id FROM cases WHERE id = :id"), {"id": case_id}
         ).fetchone()
@@ -797,6 +802,167 @@ def backfill_chunks(case_id: str):
 
     cache_delete(f"sokol:stats:{case_id}")
     return {"chunks_created": count, "case_id": case_id}
+
+
+class EmbedJobStatus(BaseModel):
+    job_id: str | None = None
+    status: str
+    stage: str | None = None
+    done: int = 0
+    total: int = 0
+    error: str | None = None
+    chunks_total: int = 0
+    chunks_embedded: int = 0
+    events_total: int = 0
+    events_embedded: int = 0
+
+
+def _embed_coverage(db, case_id: UUID) -> dict[str, int]:
+    chunks_total = db.execute(
+        text("SELECT count(*) FROM chunks WHERE case_id = :cid"),
+        {"cid": case_id},
+    ).scalar() or 0
+    chunks_embedded = db.execute(
+        text(
+            "SELECT count(*) FROM chunks WHERE case_id = :cid AND embedding IS NOT NULL"
+        ),
+        {"cid": case_id},
+    ).scalar() or 0
+    events_total = db.execute(
+        text("SELECT count(*) FROM events WHERE case_id = :cid"),
+        {"cid": case_id},
+    ).scalar() or 0
+    events_embedded = db.execute(
+        text(
+            "SELECT count(*) FROM events WHERE case_id = :cid AND embedding IS NOT NULL"
+        ),
+        {"cid": case_id},
+    ).scalar() or 0
+    return {
+        "chunks_total": int(chunks_total),
+        "chunks_embedded": int(chunks_embedded),
+        "events_total": int(events_total),
+        "events_embedded": int(events_embedded),
+    }
+
+
+@router.get("/embed/{case_id}", response_model=EmbedJobStatus)
+def embed_status(
+    case_id: str,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Coverage + latest embed job for this case."""
+    cid = UUID(case_id)
+    factory = get_session_factory()
+    with factory() as db:
+        require_case_member(db, cid, user.user_id)
+        cov = _embed_coverage(db, cid)
+        row = db.execute(
+            text("""
+                SELECT id, status, payload, error
+                FROM jobs
+                WHERE case_id = :cid AND kind = 'embed'
+                ORDER BY created_at DESC
+                LIMIT 1
+            """),
+            {"cid": cid},
+        ).mappings().first()
+
+    status = EmbedJobStatus(**cov, status="idle")
+    if not row:
+        if cov["chunks_embedded"] or cov["events_embedded"]:
+            status.status = "done"
+        return status
+
+    payload = row["payload"]
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    status.job_id = str(row["id"])
+    status.status = row["status"]
+    status.stage = payload.get("stage")
+    status.done = int(payload.get("done") or 0)
+    status.total = int(payload.get("total") or 0)
+    status.error = row["error"]
+    return status
+
+
+@router.post("/embed/{case_id}", response_model=EmbedJobStatus)
+def launch_embed(
+    case_id: str,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Enqueue a background job to embed chunks + events for the Agent."""
+    cid = UUID(case_id)
+    factory = get_session_factory()
+    with factory() as db:
+        require_case_member(db, cid, user.user_id)
+        case = db.execute(
+            text("SELECT id FROM cases WHERE id = :id"), {"id": case_id}
+        ).fetchone()
+        if not case:
+            raise HTTPException(status_code=404, detail="Caso não encontrado")
+
+        existing = db.execute(
+            text("""
+                SELECT id, status, payload, error
+                FROM jobs
+                WHERE case_id = :cid AND kind = 'embed'
+                  AND status IN ('pending', 'running')
+                ORDER BY created_at DESC
+                LIMIT 1
+            """),
+            {"cid": cid},
+        ).mappings().first()
+        cov = _embed_coverage(db, cid)
+        if existing:
+            payload = existing["payload"] if isinstance(existing["payload"], dict) else {}
+            return EmbedJobStatus(
+                job_id=str(existing["id"]),
+                status=existing["status"],
+                stage=payload.get("stage") if isinstance(payload, dict) else None,
+                **cov,
+            )
+
+        if cov["chunks_embedded"] >= cov["chunks_total"] and cov["events_embedded"] >= cov["events_total"] and cov["events_total"] > 0:
+            return EmbedJobStatus(status="done", **cov)
+
+        job_id = uuid4()
+        now = datetime.now(timezone.utc)
+        db.execute(
+            text("""
+                INSERT INTO jobs (id, case_id, kind, payload, status, pipeline_version, created_at, updated_at)
+                VALUES (:id, :cid, 'embed', CAST(:payload AS jsonb), 'pending', 'v1', :now, :now)
+            """),
+            {
+                "id": job_id,
+                "cid": cid,
+                "payload": json.dumps({"stage": "queued", "done": 0, "total": 0}),
+                "now": now,
+            },
+        )
+        append_audit(
+            db,
+            case_id=cid,
+            actor_user_id=user.user_id,
+            action="embed.enqueue",
+            payload={"job_id": str(job_id)},
+        )
+        db.commit()
+
+    from .cache import cache_delete
+
+    cache_delete(f"sokol:stats:{case_id}")
+    return EmbedJobStatus(
+        job_id=str(job_id),
+        status="pending",
+        stage="queued",
+        **cov,
+    )
 
 
 def _collect_pipeline_jobs(case_id: str | None = None) -> list[dict]:

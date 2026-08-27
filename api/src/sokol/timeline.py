@@ -42,6 +42,8 @@ class CaseStats(BaseModel):
     chunks: int
     entities: int
     media: int
+    chunks_embedded: int = 0
+    events_embedded: int = 0
 
 
 class GeoEvent(BaseModel):
@@ -188,6 +190,20 @@ def get_case_stats(
             {"cid": case_id},
         ).scalar()
 
+        chunks_embedded = db.execute(
+            text(
+                "SELECT count(*) FROM chunks WHERE case_id = :cid AND embedding IS NOT NULL"
+            ),
+            {"cid": case_id},
+        ).scalar()
+
+        events_embedded = db.execute(
+            text(
+                "SELECT count(*) FROM events WHERE case_id = :cid AND embedding IS NOT NULL"
+            ),
+            {"cid": case_id},
+        ).scalar()
+
         entities = db.execute(
             text("SELECT count(*) FROM entities WHERE case_id = :cid"),
             {"cid": case_id},
@@ -208,6 +224,8 @@ def get_case_stats(
         chunks=chunks or 0,
         entities=entities or 0,
         media=media or 0,
+        chunks_embedded=chunks_embedded or 0,
+        events_embedded=events_embedded or 0,
     )
     cache_set(cache_key, result.model_dump(), ttl_seconds=_STATS_TTL)
     return result

@@ -47,6 +47,8 @@ export interface CaseStats {
   chunks: number
   entities: number
   media: number
+  chunks_embedded?: number
+  events_embedded?: number
 }
 
 export interface SearchResult {
@@ -606,6 +608,34 @@ export async function apiBackfillChunks(caseId: string): Promise<{ chunks_create
     headers: authHeaders(),
   })
   if (!res.ok) await throwApiError(res, 'Falha ao indexar texto')
+  return res.json()
+}
+
+export interface EmbedJobStatus {
+  job_id?: string | null
+  status: string
+  stage?: string | null
+  done?: number
+  total?: number
+  error?: string | null
+  chunks_total: number
+  chunks_embedded: number
+  events_total: number
+  events_embedded: number
+}
+
+export async function apiEmbedStatus(caseId: string): Promise<EmbedJobStatus> {
+  const res = await fetch(`${API_BASE}/detect/embed/${caseId}`, { headers: authHeaders() })
+  if (!res.ok) await throwApiError(res, 'Falha ao ler índice vetorial')
+  return res.json()
+}
+
+export async function apiLaunchEmbed(caseId: string): Promise<EmbedJobStatus> {
+  const res = await fetch(`${API_BASE}/detect/embed/${caseId}`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao indexar vetores')
   return res.json()
 }
 
