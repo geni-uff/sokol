@@ -27,7 +27,7 @@ echo "SOKOL: PostgreSQL is ready."
 alembic upgrade head
 
 echo "SOKOL: Ensuring bootstrap admin user..."
-python -m api.src.sokol.ensure_admin
+python -c "from api.src.sokol.ensure_admin import main; raise SystemExit(main())"
 
 echo "SOKOL: Migrations complete. Starting API..."
 
