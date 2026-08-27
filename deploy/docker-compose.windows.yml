@@ -75,3 +75,7 @@ services:
       SOKOL_API_PROXY: sokol-api:8000
     volumes:
       - ../web/nginx.windows.conf:/etc/nginx/templates/default.conf.template:ro
+    # Nao espere healthcheck da API (no Desktop o /health ja falhou por LM Studio lento).
+    depends_on:
+      sokol-api:
+        condition: service_started
