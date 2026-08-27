@@ -58,8 +58,10 @@ services:
     networks:
       - sokol-net
     ports:
+      # Host: SOKOL_WEB_PORT (ex. 3001 se a 3000 estiver ocupada).
+      # Dentro do container o nginx continua na 3000.
       - "${SOKOL_WEB_PORT:-3000}:3000"
     environment:
-      SOKOL_WEB_PORT: ${SOKOL_WEB_PORT:-3000}
+      SOKOL_WEB_PORT: "3000"
       SOKOL_API_PORT: ${SOKOL_API_PORT:-8000}
       SOKOL_API_PROXY: sokol-api:8000
