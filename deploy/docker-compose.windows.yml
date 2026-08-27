@@ -75,7 +75,8 @@ services:
     environment:
       SOKOL_WEB_PORT: "3000"
       SOKOL_API_PORT: ${SOKOL_API_PORT:-8000}
-      SOKOL_API_PROXY: sokol-api:8000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ../web/nginx.windows.conf:/etc/nginx/templates/default.conf.template:ro
     # Nao espere healthcheck da API (no Desktop o /health ja falhou por LM Studio lento).
