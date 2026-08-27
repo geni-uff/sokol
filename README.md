@@ -63,10 +63,10 @@ Vocabulário: [`CONTEXT.md`](CONTEXT.md). ADRs: [`docs/adr/`](docs/adr/). Versã
 
 ## Requisitos
 
-- Linux
-- Docker Compose v2
+- Linux (nativo) **ou** Windows **11/10 com WSL2 + Ubuntu** (a stack não corre no Docker Desktop nativo)
+- Docker Compose v2 **no Linux** (no Windows: Docker Engine **dentro** do Ubuntu)
 - Git
-- LM Studio no host (porta **1234**, contexto **32768**)
+- LM Studio no **mesmo** Linux (nativo ou Ubuntu WSL), porta **1234**, contexto **32768**
 - Disco para modelos ML (dezenas de GB na primeira subida)
 - ~32 GB de RAM (conforto)
 - GPU NVIDIA + Container Toolkit (visão, ASR e faces; sem GPU esses serviços ficam lentos)
@@ -75,9 +75,9 @@ Vocabulário: [`CONTEXT.md`](CONTEXT.md). ADRs: [`docs/adr/`](docs/adr/). Versã
 
 ## Início rápido
 
-**Windows:** dê dois cliques em `SOKOL.bat` (na raiz do repositório). O script sobe os containers e abre http://localhost:3000. Na primeira vez espere vários minutos. O Docker Desktop tem de estar instalado. Abra o **LM Studio** (porta 1234) para o Agent.
+**Windows:** não use o Docker Desktop nativo. Instale **Ubuntu no WSL2**, Docker **dentro** do Ubuntu e o LM Studio Linux. Guia: [`INSTRUCOES.md`](INSTRUCOES.md) seção 6.0. Depois, no Explorador, `SOKOL.bat` só chama o WSL.
 
-**Linux / terminal:**
+**Linux / Ubuntu no WSL:**
 
 1. Clone o repositório.
 

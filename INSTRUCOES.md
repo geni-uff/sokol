@@ -120,14 +120,17 @@ Para ingerir, o operador deve ser **membro** do Caso (Admin ou Analista). Senão
 
 Antes do deploy, confirme:
 
-1. Linux com Docker Compose v2.
-2. Git.
-3. LM Studio instalado no host.
-4. Espaço em disco para modelos ML (dezenas de GB).
-5. Cerca de 32 GB de RAM.
-6. GPU NVIDIA com Container Toolkit, se for usar visão, ASR ou faces.
+1. Linux nativo **ou** Windows com **WSL2 + Ubuntu**.
+2. Docker Compose v2 **nesse Linux**. No Windows, o Docker fica **dentro** do Ubuntu. Não use o Docker Desktop nativo.
+3. Git.
+4. LM Studio **no mesmo Linux** (porta 1234).
+5. Espaço em disco para modelos ML (dezenas de GB).
+6. Cerca de 32 GB de RAM.
+7. GPU NVIDIA com Container Toolkit, se for usar visão, ASR ou faces.
 
 Sem GPU, visão, ASR e faces ficam lentos ou inviáveis. A Ingestion de texto continua.
+
+**AVISO:** O SOKOL usa `network_mode: host`. API, worker e UI falam com `localhost` do Linux. O Docker Desktop do Windows não compartilha esse `localhost`. Por isso o caminho no Windows é o Ubuntu do WSL2.
 
 ---
 
@@ -135,7 +138,125 @@ Sem GPU, visão, ASR e faces ficam lentos ou inviáveis. A Ingestion de texto co
 
 Faça os passos na ordem. Um passo, uma ação.
 
+### 6.0 Windows via WSL2
+
+O Windows só serve de capa. O SOKOL corre no Ubuntu.
+
+#### 6.0.1 Instale o Ubuntu
+
+1. Abra o PowerShell como administrador.
+2. Instale o WSL2 com Ubuntu.
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+3. Reinicie o computador se o instalador pedir.
+4. Abra **Ubuntu** no menu Iniciar.
+5. Crie o usuário Linux quando o Ubuntu pedir.
+
+Confirme a versão 2:
+
+```powershell
+wsl -l -v
+```
+
+A coluna VERSION do Ubuntu deve ser `2`.
+
+#### 6.0.2 Clone o código **dentro** do Ubuntu
+
+Não clone em `C:\Users\...`. O disco `/mnt/c/` é lento e gera problema de permissão.
+
+1. No terminal Ubuntu, entre na home.
+
+```bash
+cd ~
+```
+
+2. Instale o Git, se faltar.
+
+```bash
+sudo apt update
+sudo apt install -y git curl
+```
+
+3. Clone o repositório.
+
+```bash
+git clone https://github.com/geni-uff/sokol.git
+cd sokol
+```
+
+#### 6.0.3 Instale o Docker Engine no Ubuntu
+
+Não instale o Docker Desktop para “resolver” isto.
+
+1. Instale o Docker no Ubuntu. Siga o guia oficial: https://docs.docker.com/engine/install/ubuntu/
+2. Adicione o seu usuário ao grupo `docker`.
+
+```bash
+sudo usermod -aG docker "$USER"
+```
+
+3. Feche o Ubuntu.
+4. Abra o Ubuntu de novo.
+5. Teste.
+
+```bash
+docker info
+docker compose version
+```
+
+Os dois comandos devem responder sem `permission denied`.
+
+#### 6.0.4 Instale o LM Studio no Ubuntu
+
+O LLM tem de escutar em `localhost:1234` **do Ubuntu**, não do Windows.
+
+1. Baixe o LM Studio para Linux em https://lmstudio.ai
+2. Instale no Ubuntu (AppImage ou o pacote que a página indicar).
+3. Abra o LM Studio **no Ubuntu**.
+4. Carregue o modelo com contexto **32768**.
+5. Ligue o servidor na porta **1234**.
+6. Confirme.
+
+```bash
+curl -s http://localhost:1234/v1/models
+```
+
+**NOTA:** LM Studio no Windows e Docker no Ubuntu **não** compartilham o mesmo `localhost`.
+
+#### 6.0.5 GPU (opcional)
+
+No Windows, instale o driver NVIDIA recente (suporte WSL).
+
+No Ubuntu, `nvidia-smi` deve listar a GPU. Depois instale o NVIDIA Container Toolkit no Ubuntu.
+
+Sem GPU, a Ingestion de texto continua. Visão, ASR e faces ficam lentos.
+
+#### 6.0.6 Suba o SOKOL
+
+Ainda no Ubuntu, na pasta `~/sokol`:
+
+```bash
+cp deploy/env.example .env
+mkdir -p data/media-cache data/staging data/backups
+bash ops/start-sokol.sh
+```
+
+No **navegador do Windows** abra http://localhost:3000
+
+O WSL2 encaminha essa porta. Login: `admin` / `admin123`.
+
+Na próxima vez:
+
+1. Abra o Ubuntu.
+2. Ligue o LM Studio no Ubuntu (porta 1234).
+3. Corra `bash ops/start-sokol.sh` **ou**, no Explorador, abra `\\wsl$\Ubuntu\home\<user>\sokol` e dê dois cliques em `SOKOL.bat`. O `.bat` só chama o Ubuntu.
+
 ### 6.1 Código e ambiente
+
+Neste passo o terminal já é Linux (nativo ou Ubuntu no WSL).
 
 1. Abra um terminal.
 2. Clone o repositório.
@@ -188,39 +309,28 @@ O id do modelo no LM Studio deve coincidir com `config/models.yaml` e com a linh
 
 ### 6.4 Subida da stack
 
-**Windows:** dê dois cliques em `SOKOL.bat` na raiz do repositório. O script sobe os containers, aplica as migrações e abre o navegador.
+**Windows:** não suba com Docker Desktop. Use a seção 6.0. O `SOKOL.bat` só funciona depois do Ubuntu+Docker+LM Studio no WSL.
 
-**Linux / terminal:**
+**Linux / Ubuntu no WSL:**
 
-1. Entre na pasta `deploy`.
+Na raiz do repositório:
+
+```bash
+bash ops/start-sokol.sh
+```
+
+O script sobe os containers, espera o `/health` e aplica as migrações. A primeira vez baixa imagens. Espere.
+
+À mão, o equivalente é:
 
 ```bash
 cd deploy
-```
-
-2. Suba os containers.
-
-```bash
 docker compose --env-file ../.env up --build -d
-```
-
-3. Aplique as migrações.
-
-```bash
 docker exec sokol-api alembic upgrade head
-```
-
-4. Verifique a API.
-
-```bash
 curl http://localhost:8000/health
 ```
 
-A resposta deve mostrar a API saudável. O campo `lmstudio` deve ser `ok` se o LM Studio responde.
-
-5. Abra o browser em `http://localhost:3000`.
-
-A primeira subida baixa modelos ML. Espere.
+Abra `http://localhost:3000`. No Windows, use o navegador do Windows. O campo `lmstudio` no `/health` deve ser `ok` se o LM Studio responde.
 
 ### 6.5 Parar e voltar a subir
 
