@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,11 +32,12 @@ from .ufdr_extract import ensure_media_on_disk
 router = APIRouter(prefix="/detect", tags=["detect"])
 
 MEDIA_CACHE = Path("/data/media-cache")
-VISION_URL = "http://localhost:8007"
-FACE_URL = "http://localhost:8011"
-PLATE_URL = "http://localhost:8010"
-ASR_URL = "http://localhost:8009"
-OCR_URL = "http://localhost:8008"
+# Host network (Linux/WSL): localhost. Bridge (Docker Desktop Windows): service DNS.
+VISION_URL = os.getenv("SOKOL_VISION_URL", os.getenv("SOKOL_VISION_API_URL", "http://localhost:8007"))
+FACE_URL = os.getenv("SOKOL_FACE_URL", "http://localhost:8011")
+PLATE_URL = os.getenv("SOKOL_PLATE_URL", os.getenv("SOKOL_PLATE_API_URL", "http://localhost:8010"))
+ASR_URL = os.getenv("SOKOL_ASR_URL", os.getenv("SOKOL_ASR_API_URL", "http://localhost:8009"))
+OCR_URL = os.getenv("SOKOL_OCR_URL", os.getenv("SOKOL_OCR_API_URL", "http://localhost:8008"))
 
 
 # ── Models ─────────────────────────────────────────────────────────────────

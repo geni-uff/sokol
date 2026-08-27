@@ -289,6 +289,8 @@ services:
     environment:
       SOKOL_WEB_PORT: ${SOKOL_WEB_PORT:-3000}
       SOKOL_API_PORT: ${SOKOL_API_PORT:-8000}
+      # Linux host-network: nginx fala com a API no loopback do host.
+      SOKOL_API_PROXY: ${SOKOL_API_PROXY:-127.0.0.1:8000}
     depends_on:
       sokol-api:
         condition: service_healthy

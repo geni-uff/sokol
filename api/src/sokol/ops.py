@@ -15,13 +15,21 @@ from sqlalchemy import text
 from .db import get_session_factory
 from .llm import check_lmstudio_health
 
+def _ml_health(env_keys: tuple[str, ...], default_base: str) -> str:
+    for key in env_keys:
+        value = os.getenv(key, "").strip()
+        if value:
+            return value.rstrip("/") + "/health"
+    return default_base.rstrip("/") + "/health"
+
+
 ML_SERVICES = (
-    ("embed", "http://localhost:8001/health"),
-    ("vision", "http://localhost:8007/health"),
-    ("ocr", "http://localhost:8008/health"),
-    ("asr", "http://localhost:8009/health"),
-    ("plate", "http://localhost:8010/health"),
-    ("face", "http://localhost:8011/health"),
+    ("embed", _ml_health(("SOKOL_EMBED_SERVICE_URL",), "http://localhost:8001")),
+    ("vision", _ml_health(("SOKOL_VISION_URL", "SOKOL_VISION_API_URL"), "http://localhost:8007")),
+    ("ocr", _ml_health(("SOKOL_OCR_URL", "SOKOL_OCR_API_URL"), "http://localhost:8008")),
+    ("asr", _ml_health(("SOKOL_ASR_URL", "SOKOL_ASR_API_URL"), "http://localhost:8009")),
+    ("plate", _ml_health(("SOKOL_PLATE_URL", "SOKOL_PLATE_API_URL"), "http://localhost:8010")),
+    ("face", _ml_health(("SOKOL_FACE_URL",), "http://localhost:8011")),
 )
 
 router = APIRouter(prefix="/ops", tags=["ops"])

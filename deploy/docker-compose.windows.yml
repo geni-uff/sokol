@@ -1,0 +1,65 @@
+# Override para Docker Desktop no Windows (sem WSL manual / sem network_mode: host).
+# Uso: docker compose -f docker-compose.yml -f docker-compose.windows.yml --env-file ../.env up -d
+# Autor: Matheus C. Pestana
+
+x-windows-ml-env: &windows-ml-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-sokol}:${POSTGRES_PASSWORD:-change_me}@sokol-postgres:5432/${POSTGRES_DB:-sokol}
+  REDIS_URL: redis://sokol-redis:6379/0
+  DB_HOST: sokol-postgres
+  DB_PORT: "5432"
+  SOKOL_LMSTUDIO_BASE_URL: http://host.docker.internal:1234/v1
+  SOKOL_EMBED_BASE_URL: http://host.docker.internal:1234/v1
+  SOKOL_EMBED_FALLBACK_URL: http://sokol-embed:8001/v1
+  SOKOL_VISION_URL: http://sokol-vision:8007
+  SOKOL_VISION_API_URL: http://sokol-vision:8007
+  SOKOL_FACE_URL: http://sokol-face:8011
+  SOKOL_PLATE_URL: http://sokol-plate:8010
+  SOKOL_PLATE_API_URL: http://sokol-plate:8010
+  SOKOL_ASR_URL: http://sokol-asr:8009
+  SOKOL_ASR_API_URL: http://sokol-asr:8009
+  SOKOL_OCR_URL: http://sokol-ocr:8008
+  SOKOL_OCR_API_URL: http://sokol-ocr:8008
+  SOKOL_EMBED_SERVICE_URL: http://sokol-embed:8001
+
+services:
+  sokol-api:
+    # Docker Desktop nao implementa host networking como no Linux.
+    network_mode: !reset null
+    networks:
+      - sokol-net
+    ports:
+      - "${SOKOL_API_PORT:-8000}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      <<: *windows-ml-env
+      SOKOL_API_HOST: "0.0.0.0"
+      SOKOL_API_PORT: "8000"
+      SOKOL_BACKUP_DIR: ${SOKOL_BACKUP_DIR:-/data/backups}
+      SOKOL_MEDIA_CACHE_DIR: ${SOKOL_MEDIA_CACHE_DIR:-/data/media-cache}
+      SOKOL_STAGING_DIR: ${SOKOL_STAGING_DIR:-/data/staging}
+
+  sokol-worker:
+    network_mode: !reset null
+    networks:
+      - sokol-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      <<: *windows-ml-env
+      PYTHONPATH: /data/project
+      SOKOL_BACKUP_DIR: ${SOKOL_BACKUP_DIR:-/data/backups}
+      SOKOL_MEDIA_CACHE_DIR: ${SOKOL_MEDIA_CACHE_DIR:-/data/media-cache}
+      SOKOL_STAGING_DIR: ${SOKOL_STAGING_DIR:-/data/staging}
+      SOKOL_BACKUP_CHECK_INTERVAL: ${SOKOL_BACKUP_CHECK_INTERVAL:-300}
+
+  sokol-web:
+    network_mode: !reset null
+    networks:
+      - sokol-net
+    ports:
+      - "${SOKOL_WEB_PORT:-3000}:3000"
+    environment:
+      SOKOL_WEB_PORT: ${SOKOL_WEB_PORT:-3000}
+      SOKOL_API_PORT: ${SOKOL_API_PORT:-8000}
+      SOKOL_API_PROXY: sokol-api:8000
