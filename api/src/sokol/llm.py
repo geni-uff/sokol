@@ -111,10 +111,14 @@ async def chat_completions_stream(
                     yield line[6:]
 
 
-async def check_lmstudio_health() -> str:
-    """Return 'ok' or 'down' based on LM Studio /v1/models endpoint."""
+async def check_lmstudio_health(timeout: float = 1.0) -> str:
+    """Return 'ok' or 'down' based on LM Studio /v1/models endpoint.
+
+    Keep timeout short: Docker healthchecks call /health with a ~5s budget.
+    A hanging host.docker.internal (LM Studio off) must not mark the API unhealthy.
+    """
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(f"{_get_base_url()}/models")
             if resp.status_code == 200:
                 return "ok"

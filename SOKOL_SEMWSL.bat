@@ -67,10 +67,17 @@ set "COMPOSE_ERR=!ERRORLEVEL!"
 popd
 if not "!COMPOSE_ERR!"=="0" (
     echo.
-    echo Se a porta !WEB_PORT! estiver ocupada:
+    echo Compose falhou. Diagnostico rapido:
+    echo   docker ps -a --filter name=sokol-api
+    echo   docker logs sokol-api --tail 80
+    echo   curl http://localhost:8000/health
+    echo.
+    echo Se a porta da UI !WEB_PORT! estiver ocupada:
     echo   1^) netstat -ano ^| findstr :!WEB_PORT!
     echo   2^) no .env defina SOKOL_WEB_PORT=3001 ^(ou outra livre^)
     echo   3^) SOKOL_SEMWSL.bat web
+    echo.
+    echo Se a porta 8000 estiver ocupada, mude SOKOL_API_PORT no .env.
     goto :fail
 )
 

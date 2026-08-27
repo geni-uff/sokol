@@ -38,6 +38,14 @@ services:
       SOKOL_BACKUP_DIR: ${SOKOL_BACKUP_DIR:-/data/backups}
       SOKOL_MEDIA_CACHE_DIR: ${SOKOL_MEDIA_CACHE_DIR:-/data/media-cache}
       SOKOL_STAGING_DIR: ${SOKOL_STAGING_DIR:-/data/staging}
+    # Migrations + cold start no Desktop demoram; healthcheck curto marca unhealthy
+    # e o sokol-web falha com "dependency sokol-api failed to start".
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+      start_period: 120s
 
   sokol-worker:
     network_mode: !reset null
