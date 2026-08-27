@@ -11,7 +11,7 @@ from sqlalchemy import text
 
 from .audit import append_audit
 from .auth import CurrentUser, get_current_user, require_case_member
-from .cache import cache_get, cache_set
+from .cache import cache_delete, cache_get, cache_set
 from .db import get_session_factory
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
@@ -121,14 +121,20 @@ def cross_case_analysis(
         shared_emails = _shared_entities(db, body.case_ids, "email")
         shared_locations = _shared_locations(db, body.case_ids)
 
-    # ── Similarity score (Jaccard on phone+email selectors) ──────────
+    # ── Similarity score: Jaccard on ALL phone+email selectors per case ──
     all_selectors: list[set[str]] = []
-    for cid_str in case_id_strs:
-        selectors: set[str] = set()
-        for item in shared_phones + shared_emails:
-            if cid_str in item.cases:
-                selectors.add(item.value)
-        all_selectors.append(selectors)
+    with factory() as db:
+        for cid in body.case_ids:
+            rows = db.execute(
+                text("""
+                    SELECT kind, value FROM entities
+                    WHERE case_id = :cid
+                      AND kind IN ('phone', 'email')
+                      AND value IS NOT NULL
+                """),
+                {"cid": cid},
+            ).fetchall()
+            all_selectors.append({f"{kind}:{value}" for kind, value in rows})
 
     if len(all_selectors) >= 2:
         union = set.union(*all_selectors)

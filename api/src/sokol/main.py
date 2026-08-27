@@ -5,13 +5,12 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from .llm import check_lmstudio_health
-
-SOKOL_VERSION = "0.1.0"
+from .version import SOKOL_VERSION
 
 
 @asynccontextmanager
@@ -89,7 +88,7 @@ app.include_router(comments_router)
 
 
 # ── Auth endpoints ────────────────────────────────────────────────────────
-from .auth import hash_password, verify_password, create_session
+from .auth import hash_password, verify_password, create_session, get_current_user, require_platform_admin, CurrentUser
 from .audit import append_audit
 from .db import get_session_factory
 
@@ -102,6 +101,7 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     token: str
     user_id: str
+    is_platform_admin: bool = False
 
 
 @app.post("/auth/login", response_model=LoginResponse)
@@ -109,11 +109,14 @@ def login(body: LoginRequest):
     factory = get_session_factory()
     with factory() as db:
         row = db.execute(
-            text("SELECT id, password_hash FROM users WHERE username = :u"),
+            text(
+                "SELECT id, password_hash, COALESCE(is_platform_admin, false) "
+                "FROM users WHERE username = :u"
+            ),
             {"u": body.username},
         ).fetchone()
         if row is None or not verify_password(row[1], body.password):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+            raise HTTPException(status_code=401, detail="Credenciais inválidas")
         token = create_session(row[0])
         append_audit(
             db,
@@ -123,7 +126,11 @@ def login(body: LoginRequest):
             payload={"username": body.username},
         )
         db.commit()
-        return LoginResponse(token=token, user_id=str(row[0]))
+        return LoginResponse(
+            token=token,
+            user_id=str(row[0]),
+            is_platform_admin=bool(row[2]),
+        )
 
 
 # ── Health ────────────────────────────────────────────────────────────────
@@ -145,13 +152,10 @@ from .audit import verify_chain
 
 
 @app.get("/admin/audit/verify")
-def audit_verify(user: dict = None):
-    """Verify the global audit chain integrity."""
-    from .auth import get_current_user
-    from fastapi import Request
-
-    # Simplified — in production use proper dependency
+def audit_verify(user: CurrentUser = Depends(get_current_user)):
+    """Verify the global audit chain integrity — platform admin only."""
     factory = get_session_factory()
     with factory() as db:
+        require_platform_admin(db, user.user_id)
         errors = verify_chain(db)
     return {"valid": len(errors) == 0, "errors": errors}

@@ -12,8 +12,56 @@ def _get_base_url() -> str:
     return os.getenv("SOKOL_LMSTUDIO_BASE_URL", DEFAULT_BASE_URL)
 
 
+def get_active_llm_model() -> str:
+    """Resolve the LLM id: registry active, then env, then the first LM Studio model."""
+    try:
+        from .models_registry import _load_registry
+
+        reg = _load_registry()
+        active = next((m for m in reg.get("llm_models", []) if m.get("active")), None)
+        if active and active.get("model"):
+            return str(active["model"])
+    except Exception:
+        pass
+    for key in ("SOKOL_ACTIVE_LLM_MODEL", "SOKOL_DEFAULT_LLM_MODEL"):
+        value = os.getenv(key, "").strip()
+        if value and value != "change_me":
+            return value
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(f"{_get_base_url()}/models")
+            resp.raise_for_status()
+            models = resp.json().get("data") or []
+            if models:
+                return str(models[0]["id"])
+    except Exception:
+        pass
+    raise RuntimeError(
+        "Nenhum modelo LLM configurado. Defina SOKOL_DEFAULT_LLM_MODEL "
+        "ou ative um modelo em Administração."
+    )
+
+
+def get_llm_context_length() -> int:
+    """Effective n_ctx: registry, then env, default 32768."""
+    try:
+        from .models_registry import _load_registry
+
+        reg = _load_registry()
+        active = next((m for m in reg.get("llm_models", []) if m.get("active")), None)
+        if active and active.get("context_length"):
+            return int(active["context_length"])
+    except Exception:
+        pass
+    for key in ("SOKOL_LLM_N_CTX", "SOKOL_LLM_CONTEXT_LENGTH"):
+        raw = os.getenv(key, "").strip()
+        if raw.isdigit():
+            return int(raw)
+    return 32768
+
+
 def _get_model() -> str:
-    return os.getenv("SOKOL_DEFAULT_LLM_MODEL", "change_me")
+    return get_active_llm_model()
 
 
 async def chat_completions(

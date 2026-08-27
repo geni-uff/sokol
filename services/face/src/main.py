@@ -14,7 +14,7 @@ import uvicorn
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-app = FastAPI(title="SOKOL Face Recognition Service", version="0.1.0")
+app = FastAPI(title="SOKOL Face Recognition Service", version="0.8.2")
 
 # ── Configuration ───────────────────────────────────────────────────────────
 MODEL_DIR = Path(os.getenv("SOKOL_MODEL_DIR", "/data/models/face"))

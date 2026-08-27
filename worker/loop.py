@@ -7,12 +7,17 @@ import logging
 import os
 import time
 import uuid
+import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from .ufdr_parser import process_ufdr
+try:
+    from .ufdr_parser import process_ufdr
+except ImportError:
+    from ufdr_parser import process_ufdr
 
 logger = logging.getLogger("sokol.worker")
 
@@ -118,12 +123,19 @@ def _process_ingest(engine, job_id, case_id, payload: dict) -> None:
         complete_job(engine, job_id, "failed", "Missing document_id or staging_path")
         return
 
-    from pathlib import Path
-
     ufdr_path = Path(staging_path)
 
     if not ufdr_path.exists():
         complete_job(engine, job_id, "failed", f"File not found: {staging_path}")
+        return
+
+    if ufdr_path.suffix.lower() == ".ufdr" and not zipfile.is_zipfile(ufdr_path):
+        complete_job(
+            engine,
+            job_id,
+            "failed",
+            "UFDR incompleto (ZIP inválido). A cópia para o inbox ainda não tinha acabado.",
+        )
         return
 
     def progress_callback(stage: str, progress: float, message: str = ""):
@@ -147,10 +159,26 @@ def _process_ingest(engine, job_id, case_id, payload: dict) -> None:
                 text("UPDATE documents SET status = 'ready' WHERE id = :id"),
                 {"id": document_id},
             )
+            payload["parse_coverage"] = {
+                "model_type_counts": result.get("model_type_counts"),
+                "ignored_model_types": result.get("ignored_model_types"),
+                "fs_walk": result.get("fs_walk"),
+            }
+            conn.execute(
+                text("UPDATE jobs SET payload = CAST(:p AS json) WHERE id = :id"),
+                {"p": json.dumps(payload, default=str), "id": job_id},
+            )
             conn.commit()
 
         complete_job(engine, job_id, "done")
         logger.info(f"Job {job_id} completed: {result}")
+        try:
+            from api.src.sokol.cache import cache_delete, cache_invalidate
+
+            cache_delete(f"sokol:stats:{case_id}")
+            cache_invalidate("sokol:cross-case")
+        except Exception:
+            pass
 
     except Exception as e:
         logger.exception(f"Job {job_id} failed")

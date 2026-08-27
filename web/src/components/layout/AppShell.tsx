@@ -2,6 +2,7 @@ import { type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { UserMenu } from '@/components/layout/UserMenu'
 import { cn } from '@/lib/cn'
+import { SOKOL_VERSION } from '@/lib/version'
 
 export interface NavItem {
   id: string
@@ -57,7 +58,7 @@ export function AppShell({
     <div className="flex h-[100dvh] overflow-hidden bg-background">
       <aside className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-surface">
         <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border px-6">
-          <img src="/logo_sokol.png" alt="SOKOL" className="h-20 w-auto" />
+          <img src="/logo_sokol.png?v=2" alt="SOKOL" className="h-10 w-auto max-w-full" />
         </div>
 
         {backButton && <div className="shrink-0 px-5 pt-5">{backButton}</div>}
@@ -130,7 +131,7 @@ export function AppShell({
 
         {!hideFooter && (
           <footer className="flex min-h-11 shrink-0 items-center justify-between border-t border-border bg-surface px-12 py-3 text-[11px] text-dim/80 lg:px-16 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
-            <span>SOKOL v0.1.0</span>
+            <span>SOKOL v{SOKOL_VERSION}</span>
             {footerStatus && (
               <div className="flex items-center gap-2">
                 <span

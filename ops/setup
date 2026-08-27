@@ -253,7 +253,7 @@ def main() -> None:
 
     print()
     print("Next steps:")
-    print("  1. Review .env and adjust SOKOL_HOST_INGEST_DIR if needed")
+    print("  1. Review .env and adjust SOKOL_INGEST_DIR if needed")
     print("  2. docker compose --env-file .env -f deploy/docker-compose.yml up --build")
 
 

@@ -10,7 +10,7 @@ import uvicorn
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-app = FastAPI(title="SOKOL ASR Service", version="0.1.0")
+app = FastAPI(title="SOKOL ASR Service", version="0.8.2")
 
 ASR_MODEL = None
 

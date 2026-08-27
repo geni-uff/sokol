@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardContent } from '@/components/ui/Card'
+import { SOKOL_VERSION } from '@/lib/version'
 
 export default function Login() {
   const { login } = useAuth()
@@ -40,7 +41,7 @@ export default function Login() {
 
       <div className="relative z-10 w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
-          <img src="/logo_sokol.png" alt="SOKOL" className="mb-4 h-64 max-w-none" />
+          <img src="/logo_sokol.png?v=2" alt="SOKOL" className="mb-4 h-auto w-full max-w-[22rem]" />
           <p className="mt-1.5 text-sm text-muted">Plataforma de Análise e Investigação Forense</p>
         </div>
 
@@ -80,6 +81,7 @@ export default function Login() {
             </form>
           </CardContent>
         </Card>
+        <p className="mt-6 text-center text-[11px] text-dim/80">SOKOL v{SOKOL_VERSION}</p>
       </div>
     </div>
   )

@@ -192,6 +192,7 @@ export function CrossCaseTab({ caseId }: Props) {
             result.shared_emails.length === 0 &&
             result.shared_locations.length === 0 && (
               <EmptyState
+                icon={GitMerge}
                 title="Sem correspondências"
                 description="Nenhum telefone, e-mail ou local compartilhado encontrado entre os casos selecionados."
               />

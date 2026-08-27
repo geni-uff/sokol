@@ -64,7 +64,7 @@ export function DetectionActionItem({
             <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
-                variant={isConfirmed ? 'secondary' : 'primary'}
+                variant={isConfirmed ? 'secondary' : 'default'}
                 onClick={handleConfirm}
                 disabled={isConfirmed}
                 className="flex items-center gap-1"

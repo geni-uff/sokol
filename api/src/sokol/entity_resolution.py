@@ -10,6 +10,7 @@ from sqlalchemy import text
 from .auth import CurrentUser, get_current_user
 from .audit import append_audit
 from .cases import require_case_member
+from .contact_materialize import list_agenda_contacts, materialize_agenda_contacts
 from .db import get_session_factory
 
 router = APIRouter(prefix="/entities", tags=["entity-resolution"])
@@ -24,6 +25,8 @@ class ResolutionSuggestion(BaseModel):
     kind_b: str
     display_a: str | None
     display_b: str | None
+    value_a: str | None = None
+    value_b: str | None = None
     reason: str
     confidence: float
     indicator_note: str = (
@@ -50,7 +53,7 @@ class MergeRequest(BaseModel):
     other_identity_id: UUID
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
+MIN_RESOLVE_TOKEN = 8
 
 def _normalize(s: str) -> str:
     s = s.lower().strip()
@@ -144,14 +147,14 @@ def suggest_resolutions(
             if ea["kind"] == eb["kind"] and ea["kind"] in ("phone", "email"):
                 va = (ea["value"] or "").strip().lower()
                 vb = (eb["value"] or "").strip().lower()
-                if va and vb and va == vb:
+                if va and vb and va == vb and len(va) >= MIN_RESOLVE_TOKEN:
                     confidence = 0.97
                     reason = f"Mesmo {ea['kind']}: {va}"
 
             if confidence is None and ea["kind"] == "person" and eb["kind"] == "person":
                 na = _normalize(ea["display_name"] or ea["value"] or "")
                 nb = _normalize(eb["display_name"] or eb["value"] or "")
-                if na and nb:
+                if na and nb and min(len(na), len(nb)) >= MIN_RESOLVE_TOKEN:
                     dist = _levenshtein(na, nb)
                     if dist <= 2:
                         confidence = max(0.5, 1.0 - dist * 0.2)
@@ -164,8 +167,10 @@ def suggest_resolutions(
                         entity_b=str(eb["id"]),
                         kind_a=ea["kind"],
                         kind_b=eb["kind"],
-                        display_a=ea["display_name"],
-                        display_b=eb["display_name"],
+                        display_a=ea["display_name"] or ea["value"],
+                        display_b=eb["display_name"] or eb["value"],
+                        value_a=ea["value"],
+                        value_b=eb["value"],
                         reason=reason,
                         confidence=round(confidence, 3),
                     )
@@ -176,6 +181,55 @@ def suggest_resolutions(
         suggestions=suggestions,
         total=len(suggestions),
     )
+
+
+class AgendaContact(BaseModel):
+    id: str
+    name: str
+    phones: list[str]
+    emails: list[str]
+
+
+class AgendaResponse(BaseModel):
+    case_id: str
+    contacts: list[AgendaContact]
+    total: int
+
+
+@router.get("/agenda/{case_id}", response_model=AgendaResponse)
+def list_case_agenda(
+    case_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+):
+    factory = get_session_factory()
+    with factory() as db:
+        require_case_member(db, case_id, user.user_id)
+        items = list_agenda_contacts(db, case_id)
+    return AgendaResponse(
+        case_id=str(case_id),
+        contacts=[AgendaContact(**c) for c in items],
+        total=len(items),
+    )
+
+
+@router.post("/backfill-contacts/{case_id}")
+def backfill_agenda_contacts(
+    case_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+):
+    factory = get_session_factory()
+    with factory() as db:
+        require_case_member(db, case_id, user.user_id, roles=["admin", "analista"])
+        stats = materialize_agenda_contacts(db, case_id)
+        append_audit(
+            db,
+            case_id=case_id,
+            actor_user_id=user.user_id,
+            action="entity.backfill_contacts",
+            payload=stats,
+        )
+        db.commit()
+    return {"case_id": str(case_id), **stats}
 
 
 @router.post("/{entity_id}/resolve-to", status_code=201)

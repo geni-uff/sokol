@@ -5,18 +5,19 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+WORKDIR /data/project
 
 # Install uv for fast dependency installation
 RUN pip install --no-cache-dir uv
 
 # Copy requirements
-COPY worker/requirements.txt ./
-RUN uv pip install --system -r requirements.txt
+COPY worker/requirements.txt ./worker/requirements.txt
+RUN uv pip install --system -r worker/requirements.txt
 
-# Copy worker code
-COPY worker/ ./
+# Keep package layout so `python -m worker.ingest_worker` resolves relative imports.
+COPY worker/ ./worker/
 
-# Default entrypoint: run worker process
-# Usage: docker run sokol-worker python ingest_worker.py [worker_id] [num_workers]
-CMD ["python", "ingest_worker.py", "1", "1"]
+ENV PYTHONPATH=/data/project
+
+# Default entrypoint: run as a package (not `python ingest_worker.py`).
+CMD ["python", "-m", "worker.ingest_worker", "1", "1"]

@@ -38,12 +38,12 @@ function SuggestionCard({
             <div className="flex items-center gap-2 flex-wrap">
               <Badge className="text-[10px] capitalize">{s.kind_a}</Badge>
               <span className="font-medium text-sm text-foreground truncate">
-                {s.display_a ?? s.entity_a.slice(0, 8)}
+                {s.display_a || s.value_a || '—'}
               </span>
               <GitMerge className="h-3.5 w-3.5 text-dim shrink-0" />
               <Badge className="text-[10px] capitalize">{s.kind_b}</Badge>
               <span className="font-medium text-sm text-foreground truncate">
-                {s.display_b ?? s.entity_b.slice(0, 8)}
+                {s.display_b || s.value_b || '—'}
               </span>
             </div>
             <p className="mt-1.5 text-xs text-muted">{s.reason}</p>

@@ -1,11 +1,11 @@
-import { LogOut } from 'lucide-react'
+import { LogOut, Shield } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { Separator } from '@/components/ui/Separator'
 import { cn } from '@/lib/cn'
 
 export function UserMenu() {
-  const { logout, userId } = useAuth()
+  const { logout, userId, isPlatformAdmin } = useAuth()
   const navigate = useNavigate()
 
   const handleLogout = () => {
@@ -28,6 +28,20 @@ export function UserMenu() {
           <p className="truncate font-mono text-[11px] text-dim">{displayId}</p>
         </div>
       </div>
+      {isPlatformAdmin && (
+        <button
+          type="button"
+          onClick={() => navigate('/admin')}
+          className={cn(
+            'mb-1 flex w-full items-center gap-3 rounded-lg px-4 py-3.5 text-left text-sm font-medium',
+            'text-muted transition-colors duration-150',
+            'hover:bg-white/5 hover:text-foreground',
+          )}
+        >
+          <Shield className="h-4 w-4 shrink-0" />
+          <span className="truncate">Administração</span>
+        </button>
+      )}
       <button
         type="button"
         onClick={handleLogout}

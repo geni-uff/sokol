@@ -401,10 +401,10 @@ export function AnalyticsTab({ caseId }: { caseId: string }) {
         />
       ) : (
         <div className="space-y-6">
-          <AnomaliesPanel caseId={caseId} />
           <ActivityGrid caseId={caseId} />
           <LocationPanel caseId={caseId} />
           <ContactBars caseId={caseId} />
+          <AnomaliesPanel caseId={caseId} />
         </div>
       )}
     </>

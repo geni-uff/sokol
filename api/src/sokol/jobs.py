@@ -22,12 +22,24 @@ router = APIRouter(tags=["jobs"])
 # ── SSE progress store (in-memory for v1) ────────────────────────────────
 _job_events: dict[str, list[dict]] = {}
 _job_subs: dict[str, list[asyncio.Queue]] = {}
+_job_case_ids: dict[str, str] = {}
 
 
-def emit_progress(job_id: str, stage: str, status: str, progress: float, message: str = "") -> None:
+def emit_progress(
+    job_id: str,
+    stage: str,
+    status: str,
+    progress: float,
+    message: str = "",
+    case_id: str | None = None,
+) -> None:
     """Push a progress event to all SSE subscribers and persist to store."""
+    if case_id:
+        _job_case_ids[job_id] = case_id
+    resolved = case_id or _job_case_ids.get(job_id)
     event = {
         "job_id": job_id,
+        "case_id": resolved,
         "stage": stage,
         "status": status,
         "progress": progress,

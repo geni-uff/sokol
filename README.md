@@ -6,370 +6,367 @@
 
 <p align="center">
   Sistema Operacional de Conhecimento e Organização Local — ingestão, enriquecimento,
-  busca, chat investigativo e geração de relatórios a partir de evidências digitais.
+  busca, Agent investigativo e geração de laudos a partir de evidências digitais.
+  Tudo roda na máquina, via Docker Compose, sem serviços externos.
 </p>
+
+<p align="center"><strong>v0.8.2</strong> · 1.0.0 só quando o produto estiver completo</p>
 
 ---
 
-## Visão Geral
+## O que é
 
-O SOKOL transforma evidências brutas (UFDR, arquivos, bancos de dados forenses)
-em dados estruturados, pesquisáveis e auditáveis. Tudo roda localmente via
-Docker Compose — sem dependência de serviços externos.
+O SOKOL transforma evidências brutas (UFDR Cellebrite, documentos, mídia) em dados
+estruturados, pesquisáveis e auditáveis, sempre escopados por **caso** (`case_id`).
 
-### Principais Capacidades
-
-| Capacidade | Descrição |
+| Capacidade | O que faz |
 |-----------|-----------|
-| **Ingestão estrutural** | Parsing de UFDR (Cellebrite) com extração de mensagens, chamadas, localizações, web history e mídia |
-| **Busca híbrida** | Combinação de busca lexical (tsvector) e semântica (pgvector) com reranking |
-| **Chat investigativo** | Agente com ferramentas SQL parametrizadas que responde com fontes e citations |
-| **Pipeline de detecção** | Detecção paralela automática — YOLO (armas, facas, granadas, explosivos), rostos (InsightFace), placas (YOLO+OCR), transcrição (Whisper) |
-| **Reconhecimento facial** | Detecção, embedding e busca cross-case de rostos com InsightFace |
-| **Extração de placas** | Detecção de placas veiculares com regex Mercosul |
-| **Transcrição de áudio** | ASR com faster-whisper para áudio e vídeo |
-| **Timeline unificada** | Eventos estruturados como espinha dorsal — tudo referenciado a origem |
-| **Playbooks** | Fluxos de investigação executáveis (análise de contatos, temporal, busca de pessoas) |
-| **Watchlists** | Listas globais de monitoramento cross-case |
-| **Auditoria** | Hash-chain append-only para todas as ações relevantes |
+| **Ingestão** | UFDR (XML Cellebrite + walker FileSystem/iCloud), mensagens, chamadas, contatos, GPS, web, e-mail, mídia |
+| **Busca híbrida** | Lexical (`tsvector`) + semântica (`pgvector`) com reranking |
+| **Agent** | Pergunta-e-resposta com ferramentas SQL; respostas com **Sources** |
+| **Pipeline de detecção** | YOLO, rostos, placas, OCR, transcrição — em amostra ou em tudo |
+| **Timeline e mapa** | Eventos no fuso do caso; geo via PostGIS |
+| **Playbooks e laudos** | Fluxos determinísticos e relatórios HTML com cadeia de custódia |
+| **Watchlists e pendências** | Seletores globais; fila humana Indicator → Fact |
+| **Cross-case e identidades** | Comparação auditada (Admin); resolução não-destrutiva (`resolves_to`) |
+| **Auditoria** | `audit_log` append-only com hash-chain |
+
+Vocabulário: [`CONTEXT.md`](CONTEXT.md). ADRs: [`docs/adr/`](docs/adr/). Agentes: [`CLAUDE.md`](CLAUDE.md). Versão: [`docs/VERSIONING.md`](docs/VERSIONING.md).
+
+**Login de desenvolvimento:** `admin` / `admin123` (admin de plataforma: `/admin`, backup, troca de modelos).
+
+---
+
+## Início rápido
+
+1. Copiar `deploy/env.example` → `.env` e definir `POSTGRES_PASSWORD`.
+2. `mkdir -p data/media-cache data/staging data/backups`
+3. Abrir o **LM Studio** no host, carregar o LLM com contexto **32768** (ver [Modelos](#modelos-llm-embedding-e-reranker)), servidor na porta **1234**.
+4. Subir a stack:
+
+```bash
+cd deploy && docker compose --env-file ../.env up --build -d
+docker exec sokol-api alembic upgrade head
+curl http://localhost:8000/health
+```
+
+5. UI operacional: **http://localhost:3000** (não a 5173, salvo desenvolvimento da interface).
+
+A primeira subida baixa modelos ML (dezenas de GB). Sem GPU os serviços de visão/ASR/face ficam lentos ou inviáveis.
+
+---
+
+## Duas portas: 3000 vs 5173
+
+São a **mesma aplicação**, servidas de formas diferentes.
+
+| | `http://localhost:3000` | `http://localhost:5173` |
+|---|---|---|
+| Quem serve | Contentor `sokol-web` (nginx + bundle) | Vite (`cd web && npm run dev`) |
+| Código | Último `docker compose … --build sokol-web` | Fonte atual em `web/src/` (HMR) |
+| Quando usar | Operação / “como em produção” | Desenvolvimento da UI |
+
+Depois de mudar o frontend, reconstrua o container ou o **3000 fica velho**:
+
+```bash
+cd deploy && docker compose --env-file ../.env up -d --build sokol-web
+```
+
+A API está sempre em **`http://localhost:8000`** (docs: `/docs`). O nginx em `:3000` faz proxy de `/api/` para ela.
+
+---
+
+## Modelos (LLM, embedding e reranker)
+
+Há **três papéis**. Só o **LLM** se troca no dia-a-dia. Embedding e reranker são outra história.
+
+| Papel | Onde corre | Para que serve | Trocar em runtime? |
+|-------|------------|----------------|--------------------|
+| **LLM** | LM Studio no **host** (`:1234`) | Agent (aba Chat), síntese de playbooks | Sim — Admin `/admin` |
+| **Embedding** | `sokol-embed` (`:8001`) | Busca semântica / vetores | **Não** (ADR-0006) |
+| **Reranker** | serviço de rerank | Ordenar hits da busca híbrida | Sim, com cuidado |
+
+A fonte de verdade do LLM ativo é `config/models.yaml` (montado no container da API). A UI **Administração → Modelos** mostra *Chat usa \<id\> · n_ctx N* — esse id é o que o Agent envia ao LM Studio. O `.env` (`SOKOL_DEFAULT_LLM_MODEL`) só entra se o registry não tiver um modelo `active`.
+
+### Quando mudar o LLM
+
+Mude quando o modelo atual **falha no trabalho investigativo**, não por hábito:
+
+- Respostas fracas em português, recusa de tools, ou alucinação persistente.
+- Precisa de **mais contexto** (casos grandes) e a VRAM aguenta `n_ctx` 16k–32k.
+- O modelo carregado **não é o que o Admin mostra** (erro típico: env com `gpt-oss-20b` e UI com Gemma).
+- Troca de hardware / VRAM: descer para um modelo mais pequeno em vez de ficar em `n_ctx=8192`.
+
+**Não mude** a meio de um laudo sem anotar no caso: o tom e os erros do Agent mudam. Detecções ML (YOLO, faces, ASR) **não** usam o LLM — trocar o chat não refaz placas nem transcrições.
+
+**Não mude o embedding** pela UI (está bloqueado). Vectores já gravados ficariam incompatíveis; isso exige reindexação offline e edição de `models.yaml` de propósito. Reranker pode-se activar no Admin se o endpoint responder; o impacto é só a ordem da busca, não os embeddings.
+
+### Como mudar o LLM (checklist)
+
+O Sokol **não baixa** o GGUF por si. Os dois lados precisam coincidir: processo no LM Studio **e** id no registry.
+
+**1. Carregar no LM Studio com contexto alinhado**
+
+Alvo: **32768** tokens. Se a VRAM não chegar, **16384** — não deixar em 8192 (o Agent rebenta em casos reais).
+
+```bash
+# Ver o que está em disco / em memória
+lms ls
+lms ps
+
+# Carregar o id exacto que o Admin vai usar
+lms load google/gemma-4-12b-qat -c 32768 -y
+```
+
+Na UI do LM Studio: *My Models* → Load → **Context Length 32768**, servidor local ligado na porta **1234**. Confirme:
+
+```bash
+curl -s http://localhost:1234/v1/models
+curl -s http://localhost:8000/health   # "lmstudio": "ok"
+```
+
+**2. O id tem de existir no registry**
+
+`config/models.yaml` lista os LLM permitidos. Para um modelo **novo**:
+
+1. Adicione uma entrada em `llm_models` (`id`, `provider: lmstudio`, `model:` igual ao id do LM Studio, `context_length`, `enabled: true`).
+2. Não precisa rebuild se o volume `../config:/app/config` estiver montado (já está no compose).
+3. Recarregar a página Admin.
+
+**3. Ativar no Admin**
+
+1. Entre como `is_platform_admin` (`admin` no seed).
+2. **Administração → Modelos**. A linha *Chat usa …* é o id efetivo.
+3. Clique **Ativar** no LLM desejado. A API valida se o LM Studio **responde com esse id**; senão devolve 502.
+4. Faça uma pergunta curta no Agent («quantas mensagens neste caso?»). Se aparecer `tokens > n_ctx 8192`, o modelo carregado está curto — volte ao passo 1.
+
+**4. Variáveis de ambiente (opcional)**
+
+Em `.env` / `deploy/env.example`:
+
+```bash
+SOKOL_LMSTUDIO_BASE_URL=http://localhost:1234/v1
+SOKOL_LLM_N_CTX=32768
+# Só usados se nenhum LLM estiver active no yaml:
+SOKOL_DEFAULT_LLM_MODEL=google/gemma-4-12b-qat
+SOKOL_ACTIVE_LLM_MODEL=google/gemma-4-12b-qat
+```
+
+Depois de mudar `.env` da API: `docker compose --env-file ../.env up -d sokol-api`.
+
+### Contexto (`n_ctx`) vs teto das tools
+
+Mesmo com 32k, o Agent **não** mete 40 mil localizações no prompt. As tools têm teto (`limit`/`k` ≤ 50) e os resultados são compactados. Os dois lados juntos: modelo com contexto alto **e** payload pequeno. Se o prompt ainda passar do `n_ctx`, o Agent recusa com mensagem clara em vez de falhar no LM Studio.
+
+---
+
+## Operação do dia-a-dia
+
+### Ciclo de um caso
+
+1. **Criar caso** em `/cases` (nome, referência legal, fuso `America/Sao_Paulo`).
+2. Ser **membro** do caso (senão a API responde *Not a member of this case*).
+3. Copiar o UFDR para a pasta do host em `SOKOL_INGEST_DIR` (default `UFDRsTest/`, relativa a `deploy/`). Subpastas ok. **Não precisa parar o Docker** para copiar arquivos para a pasta já montada. Só precisa de `compose up -d` se **mudar** o valor de `SOKOL_INGEST_DIR`.
+4. Caso → aba **Operação** → marcar arquivo ou **Ingerir pasta**. Um UFDR ainda sendo copiado (ZIP incompleto) aparece como *Copiando* e a API recusa ingestão até o arquivo fechar. O worker drena o job sozinho (`pending` → `running` → `done`).
+5. Investigar: Timeline, Dados, Mídia, Conversas, Busca, Agent.
+6. **Mídia → Amostra** para detecções ML (Indicadores). **Tudo** só quando a amostra bastar e houver tempo/GPU.
+7. Pendências (Indicator → Fact), Bookmarks, Relatório.
+
+Pela API:
+
+```bash
+TOKEN=$(curl -s http://localhost:8000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin123"}' | jq -r .token)
+
+curl -X POST http://localhost:8000/ingest/batch \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"case_id":"<uuid>","source_type":"ufdr","inbox_refs":["apple/pa7.ufdr"]}'
+```
+
+Progresso: `GET /ingest/jobs?case_id=` e a lista na aba Operação. Mídia grande **não** é toda extraída na ingestão — `GET /media/file/{hash}?case_id=` extrai on-demand para `data/media-cache/`.
+
+### Dois tipos de UFDR
+
+| Extract Cellebrite | O que o Sokol faz |
+|--------------------|-------------------|
+| XML rico (Physical / Advanced Logical, UFED 7.x e 8.x) | Parse de `report.xml`: chats, e-mails, arquivos (`name` ou fallback pelo *Local Path*) |
+| **FileSystem / warrant iCloud** | XML costuma ser fino (Note, LogEntry, WebBookmark). O worker **percorre `files/` em stream** (notas, `.eml`, sqlite, XLSX, mídia) **sem** carregar o ZIP inteiro na RAM. A aba Operação mostra tipos XML ignorados **e** o probe FileSystem. |
+
+Se o XML não tiver Chat/Email, 4 bookmarks não são “ingest falhou”: olhe o diagnóstico FileSystem. Domínios ausentes na imagem (sem `.eml`, sem GPS) ficam em 0 hits — o job continua `done`.
+
+### Pipeline ML
+
+```bash
+# Amostra — triagem
+curl -X POST "http://localhost:8000/detect/pipeline/{case_id}?mode=sample" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Caso inteiro — lento
+curl -X POST "http://localhost:8000/detect/pipeline/{case_id}?mode=all" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Resultados são **Indicators** até Pendência humana. O Agent não os afirma como Fact nem entram no laudo como asserção. Os jobs da aba Mídia são **deste caso**; não devem aparecer “Done” de outro UFDR.
+
+### Agent (aba Chat)
+
+`POST /chat/agent`. Contagens e fatos vêm de **tools SQL**, nunca da busca semântica. Cada afirmação deve ter Source (Message, Media SHA-256, ou Document+página). Perguntas largas demais (“mostra toda a timeline”) devem ser recortadas por data, app ou contato.
+
+### Backup
+
+Só admin de plataforma. Staging entra no tar em modo `auto` se ≤ `SOKOL_BACKUP_STAGING_MAX_MB` (default 2048); force com `SOKOL_BACKUP_INCLUDE_STAGING=1`.
 
 ---
 
 ## Arquitetura
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        NAVEGADOR (Web)                          │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ HTTP
-┌──────────────────────────▼──────────────────────────────────────┐
-│                     sokol-api (FastAPI)                          │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │
-│  │  Auth    │ │  Search  │ │   Chat   │ │ Pipeline │           │
-│  │  Cases   │ │  Hybrid  │ │  Agent   │ │ YOLO     │           │
-│  │ Timeline │ │ pgvector │ │  Tools   │ │ Faces    │           │
-│  │ Playbooks│ │          │ │          │ │ Plates   │           │
-│  └──────────┘ └──────────┘ └──────────┘ │ ASR      │           │
-│                                          └──────────┘           │
-└───┬──────────┬───────────┬───────────┬───────────┬──────────────┘
-    │          │           │           │           │
-    ▼          ▼           ▼           ▼           ▼
-┌────────┐ ┌─────────┐ ┌────────┐ ┌────────┐ ┌────────┐
-│Postgres│ │sokol-   │ │sokol-  │ │sokol-  │ │sokol-  │
-│  16    │ │embed    │ │vision  │ │face    │ │ocr     │
-│+pgvec  │ │ Qwen3   │ │YOLO v8n│ │Insight │ │Paddle  │
-│+postgis│ │Embedding│ │3 model │ │Face    │ │OCR     │
-└────────┘ └─────────┘ └────────┘ └────────┘ └────────┘
-
-┌────────┐ ┌────────┐
-│sokol-  │ │sokol-  │
-│asr     │ │plate   │
-│Whisper │ │YOLO+OCR│
-└────────┘ └────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│                     LM Studio (host)                             │
-│              LLM para chat e reasoning                           │
-└──────────────────────────────────────────────────────────────────┘
+Navegador
+  :5173  Vite (dev)  ──proxy /api──┐
+  :3000  nginx (prod) ─proxy /api──┤
+                                   ▼
+                         sokol-api :8000  (FastAPI, host network)
+                                   │
+          ┌──────────────┬─────────┼──────────┬──────────────┐
+          ▼              ▼         ▼          ▼              ▼
+   Postgres :5433     Redis     Worker    ML services    LM Studio
+   pgvector+postgis   :6379     (fila)    :8001–8011     :1234 (host)
 ```
 
-### Componentes
+| Serviço | Porta | Função |
+|---------|-------|--------|
+| `sokol-web` | **3000** | SPA React (nginx) |
+| Vite (fora do Compose) | **5173** | SPA React (dev) |
+| `sokol-api` | **8000** | API gateway |
+| `sokol-postgres` | **5433** | Postgres 16 + pgvector + PostGIS |
+| `sokol-redis` | **6379** | Fila de jobs |
+| `sokol-worker` | — | Ingestão em background (`python -m worker.ingest_worker`) |
+| `sokol-embed` | **8001** | Embeddings (Qwen3-Embedding-0.6B) |
+| `sokol-vision` | **8007** | YOLO |
+| `sokol-ocr` | **8008** | PaddleOCR |
+| `sokol-asr` | **8009** | faster-whisper |
+| `sokol-plate` | **8010** | Placas |
+| `sokol-face` | **8011** | InsightFace |
+| LM Studio | **1234** | LLM do Agent — **no host**, fora do Docker |
 
-| Serviço | Porta | Responsabilidade |
-|---------|-------|-----------------|
-| `sokol-api` | `8000` | API gateway — auth, CRUD, busca, chat, pipeline, playbooks |
-| `sokol-postgres` | `5433` | Banco de dados — pgvector + postgis |
-| `sokol-embed` | `8001` | Serviço de embeddings (API OpenAI-compatible) |
-| `sokol-vision` | `8007` | Detecção de objetos via YOLO (3 modelos) |
-| `sokol-face` | `8011` | Reconhecimento facial com InsightFace |
-| `sokol-ocr` | `8008` | OCR com PaddleOCR |
-| `sokol-asr` | `8009` | Transcrição de áudio com faster-whisper |
-| `sokol-plate` | `8010` | Detecção de placas veiculares |
-| `sokol-web` | `5173` (dev) / `3000` (prod) | Frontend React + Vite |
-| LM Studio | `1234` | LLM para chat (roda no host) |
-
----
-
-## Pré-requisitos
-
-- **Docker** e **Docker Compose** v2+
-- **GPU** (opcional mas recomendado) — NVIDIA com CUDA para embeddings, YOLO e face
-- **LM Studio** rodando no host com pelo menos um modelo LLM carregado
-- **Git** para clonar o repositório
+`sokol-api`, `sokol-worker` e `sokol-web` usam `network_mode: host`.
 
 ---
 
-## Quick Start
+## Instalação (detalhe)
 
-### 1. Clonar e configurar
+Pré-requisitos: Linux, Docker Compose v2+, NVIDIA Container Toolkit se GPU, LM Studio, Git, disco para os modelos ML, ~32 GB RAM confortável.
 
 ```bash
 git clone https://github.com/geni-uff/sokol.git
 cd sokol
-cp deploy/env.example .env
-# Edite .env conforme necessário
+cp deploy/env.example .env    # ou: python ops/setup
+# editar POSTGRES_PASSWORD; alinhar DATABASE_URL se mudar a senha
+mkdir -p data/media-cache data/staging data/backups
 ```
 
-### 2. Iniciar a stack
+Não commite `.env` nem evidências reais (`UFDRsTest/`, `ingest/`, `data/`).
 
 ```bash
 cd deploy
 docker compose --env-file ../.env up --build -d
-```
-
-### 3. Aplicar migrações do banco
-
-```bash
 docker exec sokol-api alembic upgrade head
-```
-
-### 4. Verificar saúde
-
-```bash
 curl http://localhost:8000/health
+curl http://localhost:3000/api/health
 ```
 
-### 5. Acessar o frontend
-
-Abra `http://localhost:3000` no navegador.
-
-**Login padrão:** `admin` / `admin123`
-
-### 6. Ingerir um caso
-
-```bash
-# Copie um arquivo .ufdr para o inbox
-cp caso.ufdr ingest/
-
-# Ingieira via API
-curl -X POST http://localhost:8000/ingest \
-  -H "Authorization: Bearer <token>" \
-  -F "file=@caso.ufdr"
-```
-
-### 7. Rodar pipeline de detecção
-
-Após ingestão, clique em **"Rodar Pipeline"** na aba Mídias para executar em paralelo:
-- Detecção de objetos (YOLO)
-- Reconhecimento facial (InsightFace)
-- Detecção de placas
-- Transcrição de áudio (ASR)
-
-### 8. Parar
-
-```bash
-cd deploy
-docker compose --env-file ../.env down
-```
+Papéis: **por caso** Admin / Analista / Leitor; **plataforma** `users.is_platform_admin` para `/admin` e `/backup/*`.
 
 ---
 
-## Módulos Detalhados
+## Frontend e API
 
-### API (`api/`)
+Rotas: `/login`, `/cases`, `/cases/:caseId` (abas em estado local, sem deep-link), `/admin`.
 
-Gateway FastAPI com todos os endpoints da aplicação.
+Abas do caso: Timeline, Busca, Chat, Conversas, Dados, Bookmarks, Watchlists, Pendências, Mídia, Rostos, Placas, Voz, OCR, Analytics, Grafo, Playbooks, Relatórios, Análise Cruzada, Identidades, **Operação** (inbox, jobs, cobertura XML/FS).
 
-**Endpoints principais:**
+Dev UI: `cd web && npm run dev` (5173). Lint: `npm run lint`. E2E: `npm run test:e2e` (stack no ar).
 
-| Rota | Método | Descrição |
-|------|--------|-----------|
-| `/health` | GET | Health check geral |
-| `/auth/login` | POST | Autenticação, retorna JWT |
-| `/cases` | GET/POST | Listar/criar casos |
-| `/events/timeline` | GET | Timeline de eventos |
-| `/search/exact` | GET | Busca exata |
-| `/search/scan` | GET | Busca híbrida (lexical + semântica) |
-| `/chat/agent` | POST | Chat investigativo com ferramentas |
-| `/media/{case_id}` | GET | Listar mídia do caso |
-| `/media/file/{hash}` | GET | Servir arquivo de mídia |
-| `/detect/pipeline/{case_id}` | POST | Lançar pipeline de detecção paralelo |
-| `/detect/status` | GET | Status dos jobs do pipeline |
-| `/faces/{case_id}` | GET | Listar rostos detectados |
-| `/faces/{case_id}/search` | POST | Busca cross-case de rostos |
-| `/playbooks/` | GET/POST | Listar/criar playbooks |
-| `/playbooks/{id}/execute` | POST | Executar playbook |
-| `/plates/{case_id}` | GET | Listar placas detectadas |
-| `/transcriptions/{case_id}` | GET | Listar transcrições (busca full-text) |
-| `/watchlists/` | GET/POST | Watchlists globais |
-| `/ingest` | POST | Ingerir UFDR |
-
-### Banco de Dados (`db/`)
-
-Postgres 16 com extensões `pgvector` (busca vetorial) e `postgis` (geoespacial).
-
-**Principais tabelas:**
-
-- `cases` — Casos investigativos
-- `events` — Eventos estruturados (espinha da timeline)
-- `messages` — Mensagens extraídas
-- `chunks` — Chunks para busca com embeddings vetoriais
-- `media` — Arquivos de mídia (hash, mime_type, size_bytes, storage_ref)
-- `entities` — Entidades (pessoas, números, etc.)
-- `artifacts` — Artefatos brutos
-- `image_detections` — Detecções YOLO (armas, facas, etc.)
-- `face_embeddings` — Embeddings faciais (InsightFace, 512-dim)
-- `plate_detections` — Placas veiculares detectadas
-- `transcriptions` — Transcrições de áudio (busca full-text)
-- `playbooks` / `playbook_executions` / `playbook_results` — Playbooks investigativos
-- `watchlists` — Listas de monitoramento globais
-- `audit_log` — Log de auditoria com hash-chain
-
-### Pipeline de Detecção (`api/src/sokol/pipeline.py`)
-
-Executa 4 jobs em paralelo via threads:
-
-1. **YOLO** — Processa imagens em batches de 16, salva em `image_detections`
-2. **Faces** — InsightFace `buffalo_l`, salva embeddings em `face_embeddings`
-3. **Placas** — YOLO + OCR + regex Mercosul, salva em `plate_detections`
-4. **ASR** — faster-whisper com VAD, salva em `transcriptions`
-
-Progresso rastreado via SSE (`_job_events`).
-
-### Frontend (`web/`)
-
-Aplicação React + Vite + TypeScript com interface operacional.
-
-**Abas disponíveis:**
-
-| Aba | Função |
-|-----|--------|
-| Timeline | Visualização cronológica de todos os eventos |
-| Busca | Busca híbrida com filtros por tipo |
-| Chat | Chat investigativo com IA |
-| Dados | Resumo estatístico do caso |
-| Mídia | Visualização de imagens + botão "Rodar Pipeline" |
-| Rostos | Rostos detectados, busca cross-case, labeling |
-| Placas | Placas veiculares detectadas |
-| Voz | Transcrições de áudio com busca full-text |
-| Playbooks | Fluxos de investigação executáveis |
-| Relatórios | Geração de laudos |
-| Operação | Status dos serviços |
-
-### Watchlists (`api/src/sokol/watchlists.py`)
-
-Listas globais de monitoramento que funcionam cross-case:
-
-- Pessoas, organizações, placas, telefones, emails, IPs, CNPJ, CPF
-- Endpoint de scan que verifica watchlists contra todos os casos
-- Frontend com criação, edição e resultado de scan
-
-### Playbooks (`api/src/sokol/playbooks.py`)
-
-Fluxos de investigação com ações executáveis:
-
-| Ação | Descrição |
-|------|-----------|
-| `extract_contacts` | Extrai contatos do caso |
-| `map_communications` | Mapeia comunicações (actor/counterpart) |
-| `analyze_patterns` | Analisa padrões por tipo de evento |
-| `extract_timeline` | Extrai timeline completa |
-| `detect_peaks` | Identifica picos de atividade |
-| `search_mentions` | Busca menções a termos |
-| `search_entity` | Busca entidades específicas |
-| `generate_report` | Gera relatório |
-
-### Dados Sintéticos (`synth/`)
-
-```bash
-cd synth
-python -m synth --seed 42 --output ./output
-```
+Módulos FastAPI em `api/src/sokol/` (um por domínio, routers em `main.py`). Worker: `worker/ingest_worker.py`, `ufdr_parser.py`, `fs_walk.py`, `parsers/` (incluindo `email.py`). Serviços ML em `services/`. Schema Alembic em `db/migrations/versions/`.
 
 ---
 
-## Variáveis de Ambiente
+## Variáveis de ambiente (resumo)
 
-Copie `deploy/env.example` para `.env` e ajuste:
+Copie `deploy/env.example` → `.env`.
 
 ```bash
-# Banco de dados
-DATABASE_URL=postgresql://sokol:sua_senha@localhost:5433/sokol
+POSTGRES_DB=sokol
+POSTGRES_USER=sokol
+POSTGRES_PASSWORD=change_me
 
-# LM Studio (roda no host)
-SOKOL_LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1
+SOKOL_API_PORT=8000
+SOKOL_WEB_PORT=3000
+SOKOL_LMSTUDIO_PORT=1234
 
-# GPU
-SOKOL_GPU_PRIMARY=auto
+SOKOL_LMSTUDIO_BASE_URL=http://localhost:1234/v1
+SOKOL_LLM_N_CTX=32768
+SOKOL_DEFAULT_LLM_MODEL=google/gemma-4-12b-qat
 
-# Embedding
 SOKOL_DEFAULT_EMBED_MODEL=Qwen/Qwen3-Embedding-0.6B
+SOKOL_EMBED_DIM=1024
 
-# Auth
-SOKOL_JWT_SECRET=secret_mudar_em_producao
+SOKOL_GPU_MODE=auto
+SOKOL_MEDIA_CACHE_DIR=/data/media-cache
+SOKOL_STAGING_DIR=/data/staging
+SOKOL_BACKUP_DIR=/data/backups
+# Pasta no host (relativa a deploy/ ou absoluta). Mudar o valor = recreate.
+SOKOL_INGEST_DIR=../UFDRsTest
+SOKOL_CONTAINER_INGEST_DIR=/ingest/inbox
 ```
+
+A API em host network liga ao Postgres em `localhost:5433`.
 
 ---
 
-## Comandos Úteis
+## Comandos úteis
 
 ```bash
-# Ver logs da API
+cd deploy && docker compose --env-file ../.env up --build -d
+docker compose --env-file ../.env ps
 docker logs -f sokol-api
+docker logs -f sokol-worker
 
-# Reconstruir apenas a API
-cd deploy && docker compose up -d --build sokol-api
+# Rebuild só a UI
+docker compose --env-file ../.env up -d --build sokol-web
 
-# Acessar o banco
+docker exec sokol-api alembic upgrade head
 docker exec -it sokol-postgres psql -U sokol -d sokol
 
-# Rodar migração
-docker exec sokol-api alembic upgrade head
-
-# Limpar imagens Docker não usadas
-docker image prune -f
+curl http://localhost:8000/health
+cd web && npm run dev      # :5173
+cd synth && python -m synth --seed 42 --output ./output
 ```
+
+Parar: `docker compose --env-file ../.env down` (mantém volumes). Não apague `sokol-pgdata` a menos que queira zerar o banco.
+
+---
+
+## Invariantes (não violar)
+
+1. **Todo dado é escopado por `case_id`.** Mídia exige `?case_id=` e membership.
+2. **Cross-case é exceção auditada** (Admin + justificativa + `audit_log`).
+3. **Indicator ≠ Fact.** Detecção automática nunca é afirmada pelo Agent nem entra no laudo como fato.
+4. **Resolução de identidade é não-destrutiva** — arestas `resolves_to`.
+5. **Source** aponta para Message, Media (SHA-256) ou Document+página — não para Event como canônico.
+6. **Tempo:** preservar `tz_original`; consultas no fuso do caso.
+7. Contagens e fatos vêm de **structured tools (SQL)**, não de busca semântica.
 
 ---
 
 ## Status
 
-Versão atual: **v0.3.0** (Worker Docker + Relatórios + Observabilidade)
+Versão operacional: **0.8.2** (arquivo `VERSION`). SemVer: [`docs/VERSIONING.md`](docs/VERSIONING.md).
 
-### Implementado
+O SOKOL está em **0.x**. **1.0.0** só quando tudo funcionar de ponta a ponta. A versão **não sobe sozinha** — só com pedido explícito. PATCH = correção; MINOR = capacidade nova; 1.0.0 = produto completo.
 
-- [x] Stack Docker completa (API, Postgres, Frontend)
-- [x] Autenticação JWT com Argon2
-- [x] CRUD de casos com RBAC
-- [x] Ingestão de UFDR com parsers estruturados (WhatsApp, SMS, chamadas, contatos, localização, web history)
-- [x] Timeline unificada de eventos
-- [x] Busca híbrida (lexical + semântica com pgvector)
-- [x] Chat investigativo com ferramentas SQL
-- [x] Serviço de embeddings — Qwen3-Embedding-0.6B
-- [x] Serviço de visão — 3 modelos YOLO (COCO, firearm, threat)
-- [x] Serviço de face — InsightFace buffalo_l (512-dim)
-- [x] Serviço de OCR — PaddleOCR
-- [x] Serviço de ASR — faster-whisper com VAD
-- [x] Serviço de placas — YOLO + OCR + regex Mercosul
-- [x] Pipeline de detecção paralelo (4 jobs simultâneos)
-- [x] Reconhecimento facial com busca cross-case
-- [x] Watchlists globais (10 tipos de entidades)
-- [x] Playbooks investigativos (10+ ações executáveis)
-- [x] Frontend React com 12 abas operacionais
-- [x] Logo SOKOL no login e sidebar
-- [x] Gerador de dados sintéticos
-- [x] Scripts de backup e setup
-- [x] Auditoria com hash-chain
-- [x] Worker de ingestão em container Docker (fila Redis, `/ingest/batch`)
-- [x] Reranking de resultados de busca
-- [x] Relatórios HTML por caso
-- [x] Export de casos (ZIP)
-- [x] Testes E2E com Playwright (auth, cases)
-- [x] Observabilidade — dashboard de métricas do sistema
-- [x] UX de revisão de detecções (faces e placas)
-- [x] Filtros de período/app na timeline, eventos próximos e rota no mapa
-
-### Pendente (backlog em `.scratch/sokol-v2/`)
-
-- [ ] Análise cross-case (contatos/locais compartilhados entre casos, com auditoria)
-- [ ] Resolução de entidades (mesma pessoa em múltiplos casos, não-destrutiva)
-- [ ] Biblioteca de playbooks prontos para produção (4 templates)
-- [ ] Heatmaps forenses (atividade, localização, contatos)
-- [ ] Detecção de anomalias na timeline (saltos impossíveis, horários atípicos)
-- [ ] Relatórios PDF reais com gráficos e cadeia de custódia (hoje: HTML)
-- [ ] Backup real via API (hoje: stub)
-- [ ] Exports em massa (CSV/VCard/KML)
-- [ ] Comentários e anotações internas em casos e eventos
+Backlog **sokol-v2** (`.scratch/sokol-v2/`) está concluído. Fora de escopo até decisão jurídica: assinatura digital RSA de laudos.
 
 ---
 

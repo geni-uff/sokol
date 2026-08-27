@@ -54,7 +54,6 @@ def parse_contact(model: dict, device_id: str = "") -> ParseResult:
     else:
         entity_kind = "person"
 
-    # Create the contact entity
     result.entities.append(
         ParsedEntity(
             kind=entity_kind,
@@ -71,28 +70,28 @@ def parse_contact(model: dict, device_id: str = "") -> ParseResult:
         )
     )
 
-    # If we have a person name AND a phone/email, create a link
-    person_name = names.get("display_name")
-    if person_name and value and value != person_name:
-        # Link person ↔ contact value
-        person_kind = "person"
-        result.entities.append(
-            ParsedEntity(
-                kind=person_kind,
-                value=person_name,
-                display_name=person_name,
-                meta={"source": "Contact", "model_id": model_id},
+    # Agenda contact: person + phone/email even when Cellebrite has no Names block
+    # (WhatsApp push name, iCloud handle, or the number itself as the name).
+    if entity_kind in ("phone", "email"):
+        person_name = (names.get("display_name") or display_name or value or "").strip()
+        if person_name:
+            result.entities.append(
+                ParsedEntity(
+                    kind="person",
+                    value=person_name,
+                    display_name=person_name,
+                    meta={"source": "Contact", "model_id": model_id},
+                )
             )
-        )
-        result.entity_links.append(
-            ParsedEntityLink(
-                src_value=person_name,
-                src_kind=person_kind,
-                dst_value=value,
-                dst_kind=entity_kind,
-                kind="contact_of",
-                meta={"model_id": model_id},
+            result.entity_links.append(
+                ParsedEntityLink(
+                    src_value=person_name,
+                    src_kind="person",
+                    dst_value=value or display_name,
+                    dst_kind=entity_kind,
+                    kind="contact_of",
+                    meta={"model_id": model_id},
+                )
             )
-        )
 
     return result

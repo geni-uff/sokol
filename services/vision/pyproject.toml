@@ -1,6 +1,6 @@
 [project]
 name = "sokol-vision"
-version = "0.1.0"
+version = "0.8.2"
 description = "SOKOL Vision Service — Object detection with YOLO models"
 requires-python = ">=3.12"
 dependencies = [

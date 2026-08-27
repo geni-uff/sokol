@@ -112,13 +112,117 @@ def search_vector(
     ]
 
 
+def _results_from_chunk_rows(rows, source_type: str) -> list[SearchResult]:
+    return [
+        SearchResult(
+            chunk_id=str(r[0]),
+            text=r[1],
+            score=float(r[4]),
+            ref=r[2] if isinstance(r[2], dict) else json.loads(r[2]) if r[2] else {},
+            message_ids=[str(mid) for mid in (r[3] or [])],
+            source_type=source_type,
+        )
+        for r in rows
+    ]
+
+
+def _search_messages_ilike(
+    db: Session, case_id: UUID, query: str, k: int
+) -> list[SearchResult]:
+    """Authoritative fallback when chunks were never built."""
+    pattern = f"%{query.strip()}%"
+    rows = db.execute(
+        text("""
+            SELECT id, COALESCE(text, ''), 0.85
+            FROM messages
+            WHERE case_id = :cid AND text ILIKE :pat
+            ORDER BY ts DESC NULLS LAST
+            LIMIT :k
+        """),
+        {"cid": case_id, "pat": pattern, "k": k},
+    ).fetchall()
+    out: list[SearchResult] = []
+    for r in rows:
+        mid = str(r[0])
+        out.append(
+            SearchResult(
+                chunk_id=f"msg:{mid}",
+                text=r[1] or "",
+                score=float(r[2]),
+                ref={"table": "messages", "id": mid},
+                message_ids=[mid],
+                source_type="exact",
+            )
+        )
+    if len(out) >= k:
+        return out
+    ev_rows = db.execute(
+        text("""
+            SELECT id, COALESCE(summary, ''), 0.7
+            FROM events
+            WHERE case_id = :cid AND summary ILIKE :pat
+            ORDER BY ts DESC NULLS LAST
+            LIMIT :k
+        """),
+        {"cid": case_id, "pat": pattern, "k": k - len(out)},
+    ).fetchall()
+    for r in ev_rows:
+        eid = str(r[0])
+        out.append(
+            SearchResult(
+                chunk_id=f"evt:{eid}",
+                text=r[1] or "",
+                score=float(r[2]),
+                ref={"table": "events", "id": eid},
+                message_ids=[],
+                source_type="exact",
+            )
+        )
+    return out
+
+
+def _search_messages_fts(
+    db: Session, case_id: UUID, query: str, k: int
+) -> list[SearchResult]:
+    rows = db.execute(
+        text("""
+            SELECT id, COALESCE(text, ''),
+                   ts_rank(
+                     to_tsvector('portuguese', COALESCE(text, '')),
+                     plainto_tsquery('portuguese', :query)
+                   ) AS rank
+            FROM messages
+            WHERE case_id = :cid
+              AND to_tsvector('portuguese', COALESCE(text, ''))
+                  @@ plainto_tsquery('portuguese', :query)
+            ORDER BY rank DESC
+            LIMIT :k
+        """),
+        {"cid": case_id, "query": query, "k": k},
+    ).fetchall()
+    out: list[SearchResult] = []
+    for r in rows:
+        mid = str(r[0])
+        out.append(
+            SearchResult(
+                chunk_id=f"msg:{mid}",
+                text=r[1] or "",
+                score=float(r[2] or 0),
+                ref={"table": "messages", "id": mid},
+                message_ids=[mid],
+                source_type="lexical",
+            )
+        )
+    return out or _search_messages_ilike(db, case_id, query, k)
+
+
 def search_lexical(
     db: Session,
     case_id: UUID,
     query: str,
     k: int = 20,
 ) -> list[SearchResult]:
-    """Lexical search using tsvector with ts_rank."""
+    """Lexical search using tsvector; falls back to messages when chunks are empty."""
     rows = db.execute(
         text("""
             SELECT id, text, ref, message_ids,
@@ -131,18 +235,9 @@ def search_lexical(
         """),
         {"cid": case_id, "query": query, "k": k},
     ).fetchall()
-
-    return [
-        SearchResult(
-            chunk_id=str(r[0]),
-            text=r[1],
-            score=float(r[4]),
-            ref=r[2] if isinstance(r[2], dict) else json.loads(r[2]) if r[2] else {},
-            message_ids=[str(mid) for mid in (r[3] or [])],
-            source_type="lexical",
-        )
-        for r in rows
-    ]
+    if rows:
+        return _results_from_chunk_rows(rows, "lexical")
+    return _search_messages_fts(db, case_id, query, k)
 
 
 def search_exact(
@@ -151,7 +246,7 @@ def search_exact(
     query: str,
     k: int = 20,
 ) -> list[SearchResult]:
-    """Exact text search with unaccent normalization."""
+    """Substring search with unaccent; falls back to messages when chunks are empty."""
     normalized = query.strip().lower()
     rows = db.execute(
         text("""
@@ -165,18 +260,9 @@ def search_exact(
         """),
         {"cid": case_id, "query": query, "pattern": f"%{normalized}%", "k": k},
     ).fetchall()
-
-    return [
-        SearchResult(
-            chunk_id=str(r[0]),
-            text=r[1],
-            score=float(r[4]),
-            ref=r[2] if isinstance(r[2], dict) else json.loads(r[2]) if r[2] else {},
-            message_ids=[str(mid) for mid in (r[3] or [])],
-            source_type="exact",
-        )
-        for r in rows
-    ]
+    if rows:
+        return _results_from_chunk_rows(rows, "exact")
+    return _search_messages_ilike(db, case_id, query, k)
 
 
 def _rrf_fusion(
@@ -267,12 +353,22 @@ def search_hybrid(
         results = search_lexical(db, case_id, query, k)
     elif mode == "exact":
         results = search_exact(db, case_id, query, k)
-    else:  # hybrid
+    else:  # hybrid — degrade to lexical/exact if embed or chunks are missing
         vec_results = search_vector(db, case_id, query, k)
         lex_results = search_lexical(db, case_id, query, k)
         exa_results = search_exact(db, case_id, query, k)
-        results = _rrf_fusion([vec_results, lex_results, exa_results])
-        results = _rerank(query, results)
+        nonempty = [r for r in (vec_results, lex_results, exa_results) if r]
+        if not nonempty:
+            results = []
+        elif not vec_results:
+            results = (
+                _rrf_fusion([lex_results, exa_results])
+                if lex_results and exa_results
+                else (lex_results or exa_results)
+            )
+        else:
+            results = _rrf_fusion(nonempty)
+            results = _rerank(query, results)
 
     return SearchResponse(
         query=query,

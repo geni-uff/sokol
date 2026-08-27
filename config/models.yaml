@@ -1,0 +1,22 @@
+llm_models:
+  - id: default-llm
+    provider: lmstudio
+    model: google/gemma-4-12b-qat
+    context_length: 32768
+    enabled: true
+    active: true
+embedding_models:
+  - id: qwen3-embedding-0_6b
+    provider: sokol-embed
+    model: Qwen/Qwen3-Embedding-0.6B
+    dimensions: 1024
+    context_length: 32768
+    enabled: true
+    active: true
+    readonly: true
+rerank_models:
+  - id: qwen3-reranker-0_6b
+    provider: rerank-service
+    model: Qwen/Qwen3-Reranker-0.6B
+    enabled: true
+    active: true

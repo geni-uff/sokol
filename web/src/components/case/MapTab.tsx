@@ -1,7 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
-import { apiGeoEvents, apiTimeline, apiListComments, type GeoEvent, type Event } from '@/lib/api'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { apiGeoEvents, apiTimeline, apiEventApps, apiListComments, apiGetCase, apiCreateBookmark, type GeoEvent, type Event } from '@/lib/api'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MapPin, Clock, Loader2, Layers } from 'lucide-react'
+import { MapPin, Clock, Loader2, Layers, Bookmark } from 'lucide-react'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -25,7 +25,7 @@ function LeafletMap({ geoEvents }: { geoEvents: GeoEvent[] }) {
       L = await import('leaflet')
 
       // Bundlers break Leaflet's internal URL resolution for default marker icons
-      delete (L.Icon.Default.prototype as Record<string, unknown>)._getIconUrl
+      delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
         iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
@@ -126,13 +126,24 @@ function LeafletMap({ geoEvents }: { geoEvents: GeoEvent[] }) {
 }
 
 export function MapTab({ caseId }: { caseId: string }) {
+  const queryClient = useQueryClient()
   const [subTab, setSubTab] = useState<'mapa' | 'eventos'>('mapa')
   const [kindFilter, setKindFilter] = useState('')
   const [appFilter, setAppFilter] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [page, setPage] = useState(0)
+  const [marked, setMarked] = useState<Record<string, boolean>>({})
   const limit = 50
+
+  const bookmarkMut = useMutation({
+    mutationFn: ({ eventId, summary }: { eventId: string; summary: string }) =>
+      apiCreateBookmark(caseId, (summary || 'Evento da timeline').slice(0, 180), eventId),
+    onSuccess: (_data, vars) => {
+      setMarked((prev) => ({ ...prev, [vars.eventId]: true }))
+      queryClient.invalidateQueries({ queryKey: ['bookmarks', caseId] })
+    },
+  })
 
   const { data: geoEvents = [], isLoading: geoLoading } = useQuery({
     queryKey: ['geo', caseId],
@@ -169,6 +180,39 @@ export function MapTab({ caseId }: { caseId: string }) {
     }
     return map
   }, [eventCommentsData])
+
+  const KIND_LABELS: Record<string, string> = {
+    message: 'Mensagem',
+    call: 'Chamada',
+    location: 'Localização',
+    web_visit: 'Visita web',
+    media: 'Mídia',
+  }
+
+  const { data: caseApps = [] } = useQuery({
+    queryKey: ['event-apps', caseId],
+    queryFn: () => apiEventApps(caseId),
+    enabled: !!caseId,
+  })
+
+  const appOptions = useMemo(() => {
+    const fallback = ['WhatsApp', 'Telegram', 'Messenger', 'Signal']
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const app of [...caseApps, ...fallback]) {
+      const key = app.toLowerCase()
+      if (!app || seen.has(key)) continue
+      seen.add(key)
+      out.push(app)
+    }
+    return out
+  }, [caseApps])
+
+  const { data: caseInfo } = useQuery({
+    queryKey: ['case', caseId],
+    queryFn: () => apiGetCase(caseId),
+  })
+  const tz = caseInfo?.reference_timezone || 'America/Sao_Paulo'
 
   const KIND_ICONS: Record<string, string> = {
     message: '💬',
@@ -267,7 +311,9 @@ export function MapTab({ caseId }: { caseId: string }) {
                             <span>
                               {ev.lat.toFixed(6)}, {ev.lon.toFixed(6)}
                             </span>
-                            {meta?.address && <span className="truncate">{String(meta.address)}</span>}
+                            {typeof meta?.address === 'string' && (
+                              <span className="truncate">{meta.address}</span>
+                            )}
                           </div>
                         </div>
                       </CardContent>
@@ -336,10 +382,11 @@ export function MapTab({ caseId }: { caseId: string }) {
                   }}
                 >
                   <option value="">Todos os apps</option>
-                  <option value="whatsapp">WhatsApp</option>
-                  <option value="telegram">Telegram</option>
-                  <option value="messenger">Messenger</option>
-                  <option value="signal">Signal</option>
+                  {appOptions.map((app) => (
+                    <option key={app} value={app}>
+                      {app}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -403,10 +450,12 @@ export function MapTab({ caseId }: { caseId: string }) {
                       <div className="min-w-0 flex-1">
                         <div className="mb-1.5 flex flex-wrap items-center gap-2">
                           <span className="font-mono text-xs text-muted">
-                            {event.ts ? new Date(event.ts).toLocaleString('pt-BR') : '?'}
+                            {event.ts
+                              ? new Date(event.ts).toLocaleString('pt-BR', { timeZone: tz })
+                              : '?'}
                           </span>
                           {event.tz_original && <Badge className="shrink-0 text-[10px]">{event.tz_original}</Badge>}
-                          <Badge className="shrink-0 capitalize text-[10px]">{event.kind}</Badge>
+                          <Badge className="shrink-0 text-[10px]">{KIND_LABELS[event.kind] || event.kind}</Badge>
                           {event.app && (
                             <Badge variant="accent" className="shrink-0 text-[10px]">
                               {event.app}
@@ -423,11 +472,27 @@ export function MapTab({ caseId }: { caseId: string }) {
                             <span className="font-medium text-muted">{event.counterpart}</span>
                           </p>
                         )}
-                        <EventCommentToggle
-                          caseId={caseId}
-                          eventId={event.id}
-                          count={commentCounts[event.id] ?? 0}
-                        />
+                        <div className="mt-2 flex items-center gap-3">
+                          <EventCommentToggle
+                            caseId={caseId}
+                            eventId={event.id}
+                            count={commentCounts[event.id] ?? 0}
+                          />
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={marked[event.id] || bookmarkMut.isPending}
+                            onClick={() =>
+                              bookmarkMut.mutate({
+                                eventId: event.id,
+                                summary: event.summary || 'Evento da timeline',
+                              })
+                            }
+                          >
+                            <Bookmark className="h-3.5 w-3.5" />
+                            {marked[event.id] ? 'Marcado' : 'Marcar'}
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>

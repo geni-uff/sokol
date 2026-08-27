@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from .auth import CurrentUser, get_current_user, require_case_member
+from .auth import CurrentUser, get_current_user, require_case_member, require_platform_admin
 from .db import get_session_factory
 from .watchlist_engine import scan_rows
 
@@ -174,22 +174,42 @@ def list_watchlists(case_id: str):
 
 
 @router.delete("/{watchlist_id}")
-def delete_watchlist(watchlist_id: str):
+def delete_watchlist(
+    watchlist_id: str, user: CurrentUser = Depends(get_current_user)
+):
     factory = get_session_factory()
     with factory() as db:
-        result = db.execute(
-            text("DELETE FROM watchlists WHERE id = :id"), {"id": watchlist_id}
-        )
-        if result.rowcount == 0:
+        row = db.execute(
+            text("SELECT case_id, is_global FROM watchlists WHERE id = :id"),
+            {"id": watchlist_id},
+        ).fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Watchlist not found")
+        if row[1]:
+            require_platform_admin(db, user.user_id)
+        elif row[0]:
+            require_case_member(db, row[0], user.user_id, roles=["admin", "analista"])
+        db.execute(text("DELETE FROM watchlists WHERE id = :id"), {"id": watchlist_id})
         db.commit()
     return {"status": "deleted"}
 
 
 @router.post("/{watchlist_id}/toggle")
-def toggle_watchlist(watchlist_id: str):
+def toggle_watchlist(
+    watchlist_id: str, user: CurrentUser = Depends(get_current_user)
+):
     factory = get_session_factory()
     with factory() as db:
+        meta = db.execute(
+            text("SELECT case_id, is_global FROM watchlists WHERE id = :id"),
+            {"id": watchlist_id},
+        ).fetchone()
+        if not meta:
+            raise HTTPException(status_code=404, detail="Watchlist not found")
+        if meta[1]:
+            require_platform_admin(db, user.user_id)
+        elif meta[0]:
+            require_case_member(db, meta[0], user.user_id, roles=["admin", "analista"])
         result = db.execute(
             text(
                 "UPDATE watchlists SET is_active = NOT is_active WHERE id = :id RETURNING is_active"

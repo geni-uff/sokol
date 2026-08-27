@@ -42,6 +42,14 @@ class Pendencia(BaseModel):
     resolved_at: Optional[datetime]
 
 
+def _pendencia_from_row(row) -> Pendencia:
+    data = dict(row)
+    for key in ("id", "case_id", "related_event_id", "related_message_id", "created_by"):
+        if data.get(key) is not None:
+            data[key] = str(data[key])
+    return Pendencia(**{k: data.get(k) for k in Pendencia.model_fields})
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────
 @router.post("/", response_model=Pendencia)
 def create_pendencia(body: PendenciaCreate, user_id: str = "system"):
@@ -74,10 +82,8 @@ def create_pendencia(body: PendenciaCreate, user_id: str = "system"):
 
         row = db.execute(
             text("SELECT * FROM pendencias WHERE id = :id"), {"id": pendencia_id}
-        ).fetchone()
-        return Pendencia(
-            **{k: row[k] for k in Pendencia.model_fields.keys() if row[k] is not None}
-        )
+        ).mappings().first()
+        return _pendencia_from_row(row)
 
 
 @router.get("/{case_id}", response_model=list[Pendencia])
@@ -102,13 +108,8 @@ def list_pendencias(
 
         query += " ORDER BY created_at DESC LIMIT :limit"
 
-        rows = db.execute(text(query), params).fetchall()
-        return [
-            Pendencia(
-                **{k: r[k] for k in Pendencia.model_fields.keys() if r[k] is not None}
-            )
-            for r in rows
-        ]
+        rows = db.execute(text(query), params).mappings().all()
+        return [_pendencia_from_row(r) for r in rows]
 
 
 @router.put("/{pendencia_id}/status")

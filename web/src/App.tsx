@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from '@/hooks/useAuth'
 import Login from '@/pages/Login'
 import Cases from '@/pages/Cases'
 import CaseDetail from '@/pages/CaseDetail'
+import Admin from '@/pages/Admin'
 import type { ReactNode } from 'react'
 
 const queryClient = new QueryClient({
@@ -54,6 +55,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <CaseDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute>
+                  <Admin />
                 </ProtectedRoute>
               }
             />

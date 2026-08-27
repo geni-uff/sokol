@@ -11,7 +11,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from .app_filter import app_filter_sql, app_filter_value
 
 
 # ── Tool result schema ─────────────────────────────────────────────────────
@@ -31,7 +33,7 @@ class TimelineParams(BaseModel):
     end_ts: datetime | None = None
     kind: str | None = None  # "message", "call", "location", "web_visit"
     app: str | None = None
-    limit: int = 100
+    limit: int = Field(default=50, ge=1, le=50)
 
 
 class MessagesParams(BaseModel):
@@ -42,7 +44,7 @@ class MessagesParams(BaseModel):
     app: str | None = None
     start_ts: datetime | None = None
     end_ts: datetime | None = None
-    limit: int = 50
+    limit: int = Field(default=50, ge=1, le=50)
 
 
 class CallsParams(BaseModel):
@@ -51,14 +53,14 @@ class CallsParams(BaseModel):
     direction: str | None = None
     start_ts: datetime | None = None
     end_ts: datetime | None = None
-    limit: int = 50
+    limit: int = Field(default=50, ge=1, le=50)
 
 
 class MediaParams(BaseModel):
     case_id: UUID
     kind: str | None = None  # "image", "audio", "video", "document"
     mime_type: str | None = None
-    limit: int = 50
+    limit: int = Field(default=50, ge=1, le=50)
 
 
 class GeoParams(BaseModel):
@@ -69,13 +71,13 @@ class GeoParams(BaseModel):
     lon_max: float | None = None
     start_ts: datetime | None = None
     end_ts: datetime | None = None
-    limit: int = 100
+    limit: int = Field(default=50, ge=1, le=50)
 
 
 class SemanticSearchParams(BaseModel):
     case_id: UUID
     query: str
-    k: int = 20
+    k: int = Field(default=20, ge=1, le=50)
 
 
 # ── Tool implementations ───────────────────────────────────────────────────
@@ -96,8 +98,8 @@ def query_timeline(db, params: TimelineParams) -> ToolResult:
         conditions.append("e.kind = :kind")
         bind["kind"] = params.kind
     if params.app:
-        conditions.append("e.app = :app")
-        bind["app"] = params.app
+        conditions.append(app_filter_sql("e.app"))
+        bind["app"] = app_filter_value(params.app)
 
     where = " AND ".join(conditions)
     rows = db.execute(
@@ -158,8 +160,8 @@ def query_messages(db, params: MessagesParams) -> ToolResult:
         conditions.append("m.counterpart LIKE :cp")
         bind["cp"] = f"%{params.counterpart}%"
     if params.app:
-        conditions.append("m.app = :app")
-        bind["app"] = params.app
+        conditions.append(app_filter_sql("m.app"))
+        bind["app"] = app_filter_value(params.app)
     if params.start_ts:
         conditions.append("m.ts >= :start_ts")
         bind["start_ts"] = params.start_ts
@@ -432,7 +434,7 @@ def semantic_search(db, params: SemanticSearchParams) -> ToolResult:
 class SemanticSearchEventsParams(BaseModel):
     case_id: UUID
     query: str
-    k: int = 10
+    k: int = Field(default=10, ge=1, le=50)
     kind: str | None = None
 
 
@@ -599,6 +601,13 @@ def execute_tool(db, tool_name: str, params: dict, case_id: UUID) -> ToolResult:
         )
 
     try:
+        params = dict(params)
+        for key in ("limit", "k"):
+            if key in params:
+                try:
+                    params[key] = max(1, min(int(params[key]), 50))
+                except (TypeError, ValueError):
+                    params.pop(key, None)
         validated = tool["schema"](**params, case_id=case_id)
         return tool["fn"](db, validated)
     except Exception as e:

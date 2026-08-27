@@ -21,6 +21,7 @@ from uuid import UUID, uuid4
 
 from .parsers import PARSERS
 from .parsers.contract import ParseResult, ParseError, ParsedEntity, ParsedEntityLink
+from .fs_walk import inventory_fs_media, walk_ufdr_filesystem
 
 # Cellebrite namespace
 NS = "http://pa.cellebrite.com/report/2.0"
@@ -208,6 +209,16 @@ def inventory_media(ufdr_path: str | Path, members: dict) -> list[dict]:
     return media
 
 
+def _file_basename(raw: str | None) -> str:
+    """Last path component; Cellebrite Local Path uses Windows backslashes."""
+    if not raw:
+        return ""
+    cleaned = raw.replace("\\", "/").rstrip("/")
+    if not cleaned:
+        return ""
+    return cleaned.rsplit("/", 1)[-1]
+
+
 def _parse_file_element(file_el: ET.Element) -> dict | None:
     """Parse a <file> element from taggedFiles."""
     name = file_el.get("name", "")
@@ -246,6 +257,13 @@ def _parse_file_element(file_el: ET.Element) -> dict | None:
             ts_val = ts.get("formattedTimestamp", "") or (ts.text or "")
             timestamps[ts_name] = ts_val
 
+    # UFED 7.x omits the name attribute; derive from Local Path / path.
+    if not name:
+        name = _file_basename(local_path) or _file_basename(path)
+    if not name:
+        name = file_id
+    if not name and not file_id and not (local_path or path):
+        return None
     if not name:
         return None
 
@@ -304,6 +322,7 @@ def parse_report_xml(
                         "reportVersion": elem.get("reportVersion", ""),
                         "NodeCount": elem.get("NodeCount", ""),
                         "ModelCount": elem.get("ModelCount", ""),
+                        "extractionType": elem.get("extractionType", ""),
                     }
                     # Extract case information
                     ci = elem.find(f"{{{NS}}}caseInformation")
@@ -376,6 +395,25 @@ def process_ufdr(
         0.30,
         f"Parsed {len(decoded_models)} models, {len(file_entries)} files",
     )
+
+    extraction = (project_info.get("extractionType") or "").lower()
+    fs_media_stats: dict = {}
+    if extraction == "filesystem" or len(file_entries) < 100:
+        emit("filesystem", 0.32, "Inventariando mídia no ZIP (hash em stream)...")
+        existing_paths = {
+            (fe.get("local_path") or fe.get("path") or fe.get("name") or "").replace(
+                "\\", "/"
+            )
+            for fe in file_entries
+        }
+        extra_files, fs_media_stats = inventory_fs_media(ufdr_path, existing_paths)
+        file_entries.extend(extra_files)
+        emit(
+            "filesystem",
+            0.34,
+            f"FS mídia: {fs_media_stats.get('media_members', 0)} members, "
+            f"{fs_media_stats.get('media_hashed', 0)} hashed",
+        )
 
     # Phase 3: Create artifacts from file entries
     emit("artifacts", 0.35, "Creating artifacts...")
@@ -488,6 +526,44 @@ def process_ufdr(
         if (i + 1) % 100 == 0 or i + 1 == total:
             progress = 0.45 + (i + 1) / total * 0.30
             emit("parse_models", progress, f"Parsed {i + 1}/{total} models")
+
+    comms_types = {"Chat", "InstantMessage", "Email", "SMS"}
+    xml_has_comms = any(t in comms_types for t in model_type_counts)
+    ignored_model_types = {
+        t: n for t, n in model_type_counts.items() if t and t not in PARSERS
+    }
+    fs_stats: dict = dict(fs_media_stats)
+    if extraction == "filesystem" or not xml_has_comms:
+        emit("filesystem", 0.72, "Walking UFDR files/ (FileSystem / warrant)...")
+        try:
+            fs_result, walk_stats = walk_ufdr_filesystem(ufdr_path, device_id)
+            parsed_result.messages.extend(fs_result.messages)
+            parsed_result.events.extend(fs_result.events)
+            parsed_result.entities.extend(fs_result.entities)
+            fs_stats.update(walk_stats)
+            emit(
+                "filesystem",
+                0.74,
+                f"FS walk: {fs_stats.get('notes', 0)} notes, "
+                f"{fs_stats.get('emails_eml', 0)} eml, "
+                f"{fs_stats.get('xlsx_tables', 0)} xlsx rows, "
+                f"{fs_stats.get('media_hashed', 0)} media hashed",
+            )
+        except Exception as e:
+            emit("filesystem", 0.74, f"FS walk failed: {e}")
+            raise
+
+    emit(
+        "parse_coverage",
+        0.745,
+        "XML models: "
+        + ", ".join(f"{k}={v}" for k, v in sorted(model_type_counts.items()) if k)
+        + (
+            f"; ignored={list(ignored_model_types)}"
+            if ignored_model_types
+            else ""
+        ),
+    )
 
     # Phase 4.5: Link messages to their events (1:1 by construction)
     msg_idx = 0
@@ -634,6 +710,15 @@ def process_ufdr(
     db.commit()
     emit(
         "insert_entities", 0.84, f"Inserted {entity_count} entities, {link_count} links"
+    )
+
+    from .contact_materialize import materialize_agenda_contacts
+
+    agenda = materialize_agenda_contacts(db, case_id)
+    emit(
+        "insert_entities",
+        0.845,
+        f"Agenda: {agenda['persons_created']} pessoas, {agenda['links_created']} contact_of",
     )
 
     # Phase 5.6: Populate media table from artifacts with SHA-256
@@ -937,6 +1022,8 @@ def process_ufdr(
             "document_id": str(document_id),
             "device_id": device_id,
             "model_types": model_type_counts,
+            "ignored_model_types": ignored_model_types,
+            "fs_walk": fs_stats,
             "messages_inserted": msg_count,
             "events_inserted": evt_count,
             "entities_inserted": entity_count,
@@ -954,6 +1041,8 @@ def process_ufdr(
         "device_id": device_id,
         "project_info": project_info,
         "model_type_counts": model_type_counts,
+        "ignored_model_types": ignored_model_types,
+        "fs_walk": fs_stats,
         "messages_inserted": msg_count,
         "events_inserted": evt_count,
         "entities_inserted": entity_count,

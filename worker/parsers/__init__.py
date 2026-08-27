@@ -17,6 +17,7 @@ from .call import parse_call
 from .contact import parse_contact
 from .location import parse_location
 from .webhistory import parse_webhistory
+from .email import parse_email
 
 PARSERS = {
     "Chat": parse_whatsapp,
@@ -26,4 +27,5 @@ PARSERS = {
     "Location": parse_location,
     "WebBookmark": parse_webhistory,
     "SMS": parse_sms,
+    "Email": parse_email,
 }

@@ -3,16 +3,25 @@
 from __future__ import annotations
 
 import os
+
+# Paddle 3.3 CPU + oneDNN/PIR crashes predict() with ConvertPirAttribute2RuntimeAttribute.
+os.environ.setdefault("FLAGS_use_mkldnn", "0")
+os.environ.setdefault("FLAGS_onednn", "0")
+os.environ.setdefault("FLAGS_enable_pir_api", "0")
+os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "0")
+
 import re
 import tempfile
 from pathlib import Path
 
+import cv2
 import uvicorn
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from paddleocr import PaddleOCR
 from pydantic import BaseModel
 from ultralytics import YOLO
 
-app = FastAPI(title="SOKOL Plate Service", version="0.1.0")
+app = FastAPI(title="SOKOL Plate Service", version="0.8.2")
 
 PLATE_MODEL = None
 OCR_ENGINE = None
@@ -31,9 +40,13 @@ def load_models():
     PLATE_MODEL = YOLO("yolov8n.pt")
 
     print("[plate] Loading PaddleOCR for plate reading...")
-    from paddleocr import PaddleOCR
-
-    OCR_ENGINE = PaddleOCR(use_angle_cls=True, lang="pt", show_log=False)
+    OCR_ENGINE = PaddleOCR(
+        lang="pt",
+        use_textline_orientation=True,
+        use_doc_orientation_classify=False,
+        use_doc_unwarping=False,
+        enable_mkldnn=False,
+    )
     print("[plate] Models loaded")
 
 
@@ -60,6 +73,7 @@ async def health():
     return {"status": "ok", "models": ["yolov8n", "PaddleOCR"]}
 
 
+@app.post("/api/plate", response_model=PlateResponse)
 @app.post("/api/plate/detect", response_model=PlateResponse)
 async def detect_plates_upload(file: UploadFile = File(...)):
     suffix = Path(file.filename or "image.jpg").suffix or ".jpg"
@@ -116,8 +130,6 @@ def _detect_plates(image_path: str) -> PlateResponse:
             crop_x2 = min(img_w, x2 + pad_x)
             crop_y2 = min(img_h, y2 + pad_y)
 
-            import cv2
-
             img = cv2.imread(image_path)
             if img is None:
                 continue
@@ -130,13 +142,36 @@ def _detect_plates(image_path: str) -> PlateResponse:
             cv2.imwrite(crop_path, crop)
 
             try:
-                ocr_result = OCR_ENGINE.ocr(crop_path, cls=True)
-                if not ocr_result or not ocr_result[0]:
-                    continue
+                ocr_result = OCR_ENGINE.predict(crop_path)
+                texts: list[tuple[str, float]] = []
+                if ocr_result:
+                    items = ocr_result if isinstance(ocr_result, list) else [ocr_result]
+                    for item in items:
+                        rec_texts = None
+                        rec_scores: list = []
+                        if isinstance(item, dict):
+                            rec_texts = item.get("rec_texts")
+                            rec_scores = item.get("rec_scores") or []
+                        elif hasattr(item, "get"):
+                            rec_texts = item.get("rec_texts")
+                            rec_scores = item.get("rec_scores") or []
+                        elif hasattr(item, "rec_texts"):
+                            rec_texts = item.rec_texts
+                            rec_scores = getattr(item, "rec_scores", []) or []
+                        elif isinstance(item, list):
+                            for line in item:
+                                try:
+                                    texts.append(
+                                        (str(line[1][0]).strip().upper(), float(line[1][1]))
+                                    )
+                                except (TypeError, IndexError, ValueError):
+                                    continue
+                        if rec_texts:
+                            for i, raw in enumerate(rec_texts):
+                                conf = float(rec_scores[i]) if i < len(rec_scores) else 0.0
+                                texts.append((str(raw).strip().upper(), conf))
 
-                for line in ocr_result[0]:
-                    text = line[1][0].strip().upper()
-                    conf = float(line[1][1])
+                for text, conf in texts:
 
                     for regex in PLATE_REGEXES:
                         match = regex.search(text)

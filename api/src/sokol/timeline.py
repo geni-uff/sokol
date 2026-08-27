@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from .app_filter import app_filter_sql, app_filter_value
 from .auth import CurrentUser, get_current_user, require_case_member
 from .cache import cache_get, cache_invalidate, cache_set
 from .db import get_session_factory
@@ -75,8 +76,8 @@ def get_timeline(
             conditions.append("e.kind = :kind")
             bind["kind"] = kind
         if app:
-            conditions.append("e.app = :app")
-            bind["app"] = app
+            conditions.append(app_filter_sql("e.app"))
+            bind["app"] = app_filter_value(app)
         if start_date:
             conditions.append("e.ts >= :start_date")
             bind["start_date"] = start_date
@@ -129,6 +130,28 @@ def get_timeline(
             total=count_result,
             case_id=str(case_id),
         )
+
+
+@router.get("/apps", response_model=list[str])
+def list_event_apps(
+    case_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Distinct `events.app` values for the case (timeline filter)."""
+    factory = get_session_factory()
+    with factory() as db:
+        require_case_member(db, case_id, user.user_id)
+        rows = db.execute(
+            text(
+                """
+                SELECT DISTINCT app FROM events
+                WHERE case_id = :cid AND app IS NOT NULL AND app <> ''
+                ORDER BY app
+                """
+            ),
+            {"cid": case_id},
+        ).fetchall()
+    return [str(r[0]) for r in rows]
 
 
 _STATS_TTL = 60  # seconds

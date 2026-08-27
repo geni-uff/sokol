@@ -10,11 +10,11 @@ import {
   apiListBookmarks,
   apiListWatchlists,
   apiListPendencias,
-  apiGetGraph,
   apiListPlaybooks,
   apiExecutePlaybook,
   apiListMedia,
   apiLaunchPipeline,
+  apiPipelineStatus,
   apiListPlates,
   apiLabelPlate,
   apiListTranscriptions,
@@ -22,13 +22,22 @@ import {
   apiMediaWithDetections,
   apiGenerateReport,
   apiWatchlistHitsSummary,
+  apiCreateBookmark,
+  apiDeleteBookmark,
+  apiCreateWatchlist,
+  apiDeleteWatchlist,
+  apiToggleWatchlist,
+  apiBackfillChunks,
+  apiListAgenda,
+  apiBackfillContacts,
   getMediaUrl,
+  getThumbnailUrl,
   type SearchResult,
   type CaseStats,
   type PlateDetection,
   type Transcription,
 } from '@/lib/api'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ChevronLeft,
   Search,
@@ -67,6 +76,9 @@ import {
   Smartphone,
   Mic,
   FileSearch,
+  Plus,
+  Trash2,
+  Mail,
   type LucideIcon,
 } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
@@ -87,6 +99,9 @@ import { EntityResolutionTab } from '@/components/case/EntityResolutionTab'
 import { ConversasTab } from '@/components/case/ConversasTab'
 import { AnalyticsTab } from '@/components/case/AnalyticsTab'
 import { CaseCommentsPanel } from '@/components/case/CaseCommentsPanel'
+import { GraphTab } from '@/components/case/GraphTab'
+import { IngestPanel } from '@/components/case/IngestPanel'
+import { MediaLightbox, isExpandableMedia } from '@/components/case/MediaLightbox'
 
 const NAV_ITEMS = [
   { icon: BarChart3, label: 'Timeline', id: 'timeline' },
@@ -271,31 +286,50 @@ export default function CaseDetail() {
       {activeTab === 'ocr' && <OCRTab caseId={caseId!} />}
       {activeTab === 'analytics' && <AnalyticsTab caseId={caseId!} />}
       {activeTab === 'graph' && <GraphTab caseId={caseId!} />}
-      {activeTab === 'playbooks' && <PlaybooksTab caseId={caseId!} />}
+      {activeTab === 'playbooks' && (
+        <PlaybooksTab caseId={caseId!} onOpenReports={() => setActiveTab('reports')} />
+      )}
       {activeTab === 'reports' && <ReportsTab caseId={caseId!} />}
       {activeTab === 'cross-case' && <CrossCaseTab caseId={caseId!} />}
       {activeTab === 'entity-resolution' && <EntityResolutionTab caseId={caseId!} />}
-      {activeTab === 'ops' && <OpsTab />}
+      {activeTab === 'ops' && <OpsTab caseId={caseId!} />}
     </AppShell>
   )
 }
 
 function SearchTab({ caseId }: { caseId: string }) {
+  const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
-  const [mode] = useState('hybrid')
+  const [mode, setMode] = useState('lexical')
   const [results, setResults] = useState<SearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
+  const [error, setError] = useState('')
+  const [indexMsg, setIndexMsg] = useState('')
 
   const handleSearch = async () => {
     if (!query) return
     setSearching(true)
+    setError('')
     try {
       const res = await apiSearch(caseId, query, mode)
       setResults(res.results)
-    } catch {
-      setResults([])
+    } catch (err: unknown) {
+      setResults(null)
+      setError(err instanceof Error ? err.message : 'Falha na busca')
     } finally {
       setSearching(false)
+    }
+  }
+
+  const handleIndex = async () => {
+    setIndexMsg('')
+    setError('')
+    try {
+      const res = await apiBackfillChunks(caseId)
+      setIndexMsg(`${res.chunks_created} chunks no índice textual`)
+      queryClient.invalidateQueries({ queryKey: ['stats', caseId] })
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Falha ao indexar')
     }
   }
 
@@ -305,58 +339,80 @@ function SearchTab({ caseId }: { caseId: string }) {
         icon={Search}
         title="Busca Avançada"
         description="Busque informações nos dados do caso"
+        actions={
+          <Button variant="secondary" size="sm" onClick={handleIndex}>
+            Indexar texto
+          </Button>
+        }
       />
 
-      <div className="mb-8 flex gap-3">
+      <div className="mb-8 flex flex-wrap gap-3">
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           placeholder="Buscar nos dados do caso..."
-          className={cn('flex-1', INPUT_CLASS)}
+          className={cn('min-w-0 flex-1', INPUT_CLASS)}
         />
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value)}
+          className={cn('h-11 shrink-0 rounded-lg border border-border bg-surface-elevated px-3 text-sm')}
+        >
+          <option value="lexical">lexical</option>
+          <option value="exact">exata</option>
+          <option value="hybrid">híbrida</option>
+        </select>
         <Button className="h-11 shrink-0" onClick={handleSearch} disabled={!query || searching}>
           {searching ? 'Buscando...' : 'Buscar'}
         </Button>
       </div>
 
+      {error && (
+        <Card className="mb-6 border-danger/20">
+          <CardContent className="py-3 text-sm text-danger">{error}</CardContent>
+        </Card>
+      )}
+      {indexMsg && <p className="mb-4 text-xs text-dim">{indexMsg}</p>}
+
       {searching ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-5 w-5 animate-spin text-muted" />
         </div>
-      ) : !results || results.length === 0 ? (
+      ) : error ? null : results === null ? (
         <EmptyState
           icon={Search}
-          title={query ? 'Nenhum resultado encontrado' : 'Digite uma busca para começar'}
-          description={query ? 'Tente outros termos ou sinônimos.' : undefined}
+          title="Digite uma busca para começar"
+        />
+      ) : results.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          title="Nenhum resultado encontrado"
+          description="Tente outros termos ou indexe o texto do caso."
         />
       ) : (
         <div className="space-y-3">
-          {results.map((r) => {
-            const extended = r as SearchResult & { ts?: string; source?: string }
-            return (
-              <Card key={r.chunk_id} className="hover:border-border-hover">
-                <CardContent>
-                  <div className="mb-3 flex items-center gap-3">
-                    <span className="font-mono text-xs text-dim">{extended.ts || 'N/A'}</span>
-                    <Badge>{extended.source || 'N/A'}</Badge>
-                    <span className="ml-auto font-mono text-xs font-medium text-foreground">
-                      {Math.round(r.score * 100)}%
-                    </span>
-                  </div>
-                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
-                    {r.text}
+          {results.map((r) => (
+            <Card key={r.chunk_id} className="hover:border-border-hover">
+              <CardContent>
+                <div className="mb-3 flex items-center gap-3">
+                  <Badge>{r.source_type || 'N/A'}</Badge>
+                  <span className="ml-auto font-mono text-xs font-medium text-foreground">
+                    {Math.round(r.score * 100)}%
+                  </span>
+                </div>
+                <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
+                  {r.text}
+                </p>
+                {r.message_ids.length > 0 && (
+                  <p className="mt-2 text-xs text-dim">
+                    {r.message_ids.length} mensagens vinculadas
                   </p>
-                  {r.message_ids.length > 0 && (
-                    <p className="mt-2 text-xs text-dim">
-                      {r.message_ids.length} mensagens vinculadas
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
+                )}
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
     </>
@@ -393,8 +449,9 @@ function ChatTab({ caseId }: { caseId: string }) {
           sources: res.sources,
         },
       ])
-    } catch {
-      setHistory((prev) => [...prev, { role: 'assistant', content: 'Erro ao processar pergunta.' }])
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro ao processar pergunta.'
+      setHistory((prev) => [...prev, { role: 'assistant', content: msg }])
     } finally {
       setLoading(false)
     }
@@ -501,6 +558,7 @@ function DataTab({
   stats: CaseStats | undefined
   isLoading: boolean
 }) {
+  const queryClient = useQueryClient()
   const items = [
     { label: 'Eventos', value: stats?.events ?? 0, icon: BarChart3 },
     { label: 'Mensagens', value: stats?.messages ?? 0, icon: MessageSquare },
@@ -508,6 +566,20 @@ function DataTab({
     { label: 'Entidades', value: stats?.entities ?? 0, icon: User },
     { label: 'Mídia', value: stats?.media ?? 0, icon: Camera },
   ]
+
+  const { data: agenda, isLoading: agendaLoading } = useQuery({
+    queryKey: ['agenda', caseId],
+    queryFn: () => apiListAgenda(caseId),
+  })
+  const contacts = agenda?.contacts ?? []
+
+  const backfillMut = useMutation({
+    mutationFn: () => apiBackfillContacts(caseId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agenda', caseId] })
+      queryClient.invalidateQueries({ queryKey: ['stats', caseId] })
+    },
+  })
 
   return (
     <>
@@ -533,6 +605,71 @@ function DataTab({
               </Card>
             ))}
       </div>
+
+      <Card className="mt-8">
+        <CardContent className="py-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-medium text-foreground">Contatos de agenda</h3>
+              <p className="mt-1 text-xs text-dim">
+                {agendaLoading
+                  ? 'Carregando…'
+                  : `${contacts.length.toLocaleString()} pessoa(s) com telefone ou e-mail (WhatsApp/iCloud)`}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => backfillMut.mutate()}
+              disabled={backfillMut.isPending}
+            >
+              {backfillMut.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Users className="h-3.5 w-3.5" />
+              )}
+              Materializar
+            </Button>
+          </div>
+          {agendaLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : contacts.length === 0 ? (
+            <EmptyState
+              icon={User}
+              title="Nenhum contato de agenda"
+              description="Telefones e e-mails do WhatsApp/iCloud viram pessoas após materializar."
+            />
+          ) : (
+            <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+              {contacts.map((c) => (
+                <div
+                  key={c.id}
+                  className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
+                    <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+                      {c.phones.map((p) => (
+                        <span key={p} className="inline-flex items-center gap-1">
+                          <Phone className="h-3 w-3 text-dim" />
+                          {p}
+                        </span>
+                      ))}
+                      {c.emails.map((e) => (
+                        <span key={e} className="inline-flex items-center gap-1">
+                          <Mail className="h-3 w-3 text-dim" />
+                          {e}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card className="mt-8">
         <CardContent className="py-5">
           <CaseCommentsPanel
@@ -551,9 +688,29 @@ function DataTab({
 }
 
 function BookmarksTab({ caseId }: { caseId: string }) {
+  const queryClient = useQueryClient()
+  const [label, setLabel] = useState('')
+  const [formError, setFormError] = useState('')
+
   const { data: bookmarks = [], isLoading } = useQuery({
     queryKey: ['bookmarks', caseId],
     queryFn: () => apiListBookmarks(caseId),
+  })
+
+  const createMut = useMutation({
+    mutationFn: () => apiCreateBookmark(caseId, label.trim()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bookmarks', caseId] })
+      setLabel('')
+      setFormError('')
+    },
+    onError: (e: Error) => setFormError(e.message),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: apiDeleteBookmark,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bookmarks', caseId] }),
+    onError: (e: Error) => setFormError(e.message),
   })
 
   return (
@@ -563,6 +720,23 @@ function BookmarksTab({ caseId }: { caseId: string }) {
         title="Bookmarks"
         description={`${bookmarks.length} marcador(es)`}
       />
+      <div className="mb-6 flex gap-3">
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="Novo bookmark..."
+          className={cn('flex-1', INPUT_CLASS)}
+          onKeyDown={(e) => e.key === 'Enter' && label.trim() && createMut.mutate()}
+        />
+        <Button
+          onClick={() => createMut.mutate()}
+          disabled={!label.trim() || createMut.isPending}
+        >
+          <Plus className="h-4 w-4" />
+          Adicionar
+        </Button>
+      </div>
+      {formError && <p className="mb-4 text-sm text-danger">{formError}</p>}
       {isLoading ? (
         <Loader2 className="h-5 w-5 animate-spin text-muted" />
       ) : bookmarks.length === 0 ? (
@@ -579,9 +753,23 @@ function BookmarksTab({ caseId }: { caseId: string }) {
                   )}
                 />
                 <span className="text-sm font-medium text-foreground">{b.label}</span>
+                {b.event_id && (
+                  <span className="max-w-md truncate text-xs text-muted">
+                    {b.event_kind ? `${b.event_kind}: ` : ''}
+                    {b.event_summary || 'ligado a um evento'}
+                  </span>
+                )}
                 <span className="ml-auto text-xs text-dim">
                   {new Date(b.created_at).toLocaleDateString('pt-BR')}
                 </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => deleteMut.mutate(b.id)}
+                  title="Remover"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </CardContent>
               {b.note && (
                 <CardContent className="border-t border-border pt-0">
@@ -597,6 +785,11 @@ function BookmarksTab({ caseId }: { caseId: string }) {
 }
 
 function WatchlistsTab({ caseId }: { caseId: string }) {
+  const queryClient = useQueryClient()
+  const [name, setName] = useState('')
+  const [patterns, setPatterns] = useState('')
+  const [formError, setFormError] = useState('')
+
   const { data: watchlists = [], isLoading } = useQuery({
     queryKey: ['watchlists', caseId],
     queryFn: () => apiListWatchlists(caseId),
@@ -606,6 +799,34 @@ function WatchlistsTab({ caseId }: { caseId: string }) {
     queryKey: ['watchlist-hits-summary', caseId],
     queryFn: () => apiWatchlistHitsSummary(caseId),
     refetchInterval: 30_000,
+  })
+
+  const createMut = useMutation({
+    mutationFn: () =>
+      apiCreateWatchlist(
+        caseId,
+        name.trim(),
+        'keyword',
+        patterns.split(',').map((p) => p.trim()).filter(Boolean),
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['watchlists', caseId] })
+      setName('')
+      setPatterns('')
+      setFormError('')
+    },
+    onError: (e: Error) => setFormError(e.message),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: apiDeleteWatchlist,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['watchlists', caseId] }),
+    onError: (e: Error) => setFormError(e.message),
+  })
+
+  const toggleMut = useMutation({
+    mutationFn: apiToggleWatchlist,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['watchlists', caseId] }),
   })
 
   return (
@@ -620,6 +841,28 @@ function WatchlistsTab({ caseId }: { caseId: string }) {
           ) : undefined
         }
       />
+      <div className="mb-6 flex flex-wrap gap-3">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Nome da lista"
+          className={cn('min-w-[12rem] flex-1', INPUT_CLASS)}
+        />
+        <input
+          value={patterns}
+          onChange={(e) => setPatterns(e.target.value)}
+          placeholder="Padrões, separados por vírgula"
+          className={cn('min-w-[16rem] flex-[2]', INPUT_CLASS)}
+        />
+        <Button
+          onClick={() => createMut.mutate()}
+          disabled={!name.trim() || !patterns.trim() || createMut.isPending}
+        >
+          <Plus className="h-4 w-4" />
+          Adicionar
+        </Button>
+      </div>
+      {formError && <p className="mb-4 text-sm text-danger">{formError}</p>}
       {isLoading ? (
         <Loader2 className="h-5 w-5 animate-spin text-muted" />
       ) : watchlists.length === 0 ? (
@@ -629,20 +872,28 @@ function WatchlistsTab({ caseId }: { caseId: string }) {
           {watchlists.map((w) => (
             <Card key={w.id}>
               <CardContent>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <div>
                     <span className="text-sm font-medium text-foreground">{w.name}</span>
                     <span className="ml-2 text-xs text-dim">({w.watch_type})</span>
                   </div>
-                  <span
-                    className={cn(
-                      'h-2 w-2 rounded-full',
-                      w.is_active ? 'bg-success' : 'bg-dim',
-                    )}
-                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      title={w.is_active ? 'Desativar' : 'Ativar'}
+                      onClick={() => toggleMut.mutate(w.id)}
+                      className={cn(
+                        'h-2 w-2 rounded-full',
+                        w.is_active ? 'bg-success' : 'bg-dim',
+                      )}
+                    />
+                    <Button variant="ghost" size="sm" onClick={() => deleteMut.mutate(w.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {w.patterns.slice(0, 3).map((p, i) => (
+                  {w.patterns.slice(0, 8).map((p, i) => (
                     <Badge key={i}>{p}</Badge>
                   ))}
                 </div>
@@ -719,6 +970,7 @@ function MediaTab({ caseId }: { caseId: string }) {
   })
   const media = mediaData?.items ?? []
   const mediaTotal = mediaData?.total ?? 0
+  const cacheFiles = mediaData?.cache_files ?? 0
 
   const { data: detectionStats = [] } = useQuery({
     queryKey: ['detectionStats', caseId, minConfidence],
@@ -731,15 +983,56 @@ function MediaTab({ caseId }: { caseId: string }) {
     enabled: showOnlyDetections,
   })
 
-  const pipelineMutation = useMutation({
-    mutationFn: () => apiLaunchPipeline(caseId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['media', caseId] })
-      queryClient.invalidateQueries({ queryKey: ['plates', caseId] })
-      queryClient.invalidateQueries({ queryKey: ['transcriptions', caseId] })
-      queryClient.invalidateQueries({ queryKey: ['ocr', caseId] })
-      queryClient.invalidateQueries({ queryKey: ['subjects', caseId] })
+  const [pipelineNote, setPipelineNote] = useState('')
+  const [preview, setPreview] = useState<{ hash: string; mimeType: string | null } | null>(null)
+
+  const { data: pipelineJobs = [] } = useQuery({
+    queryKey: ['pipelineStatus', caseId],
+    queryFn: () => apiPipelineStatus(caseId),
+    refetchInterval: (query) => {
+      const jobs = query.state.data ?? []
+      const busy = jobs.some((j) => j.status === 'running' || j.status === 'pending')
+      return busy ? 2000 : false
     },
+  })
+
+  const jobsBusy = pipelineJobs.some((j) => j.status === 'running' || j.status === 'pending')
+
+  useEffect(() => {
+    if (pipelineJobs.length === 0) return
+    if (jobsBusy) return
+    queryClient.invalidateQueries({ queryKey: ['plates', caseId] })
+    queryClient.invalidateQueries({ queryKey: ['transcriptions', caseId] })
+    queryClient.invalidateQueries({ queryKey: ['ocr', caseId] })
+    queryClient.invalidateQueries({ queryKey: ['subjects', caseId] })
+    queryClient.invalidateQueries({ queryKey: ['faces', caseId] })
+    queryClient.invalidateQueries({ queryKey: ['pendencias', caseId] })
+  }, [jobsBusy, pipelineJobs.length, caseId, queryClient])
+
+  const pipelineMutation = useMutation({
+    mutationFn: (mode: 'sample' | 'all') => apiLaunchPipeline(caseId, { mode }),
+    onSuccess: (data) => {
+      const skipped = Object.values(data.skipped ?? {})
+      const warnings = data.warnings ?? []
+      setPipelineNote(
+        [
+          data.mode === 'all'
+            ? `${data.jobs_launched} job(s) · caso inteiro · ${data.image_count ?? 0} img · ${data.audio_count ?? 0} áudio`
+            : `${data.jobs_launched} job(s) · amostra · ${data.image_count ?? 0} img · ${data.audio_count ?? 0} áudio`,
+          data.missing_files ? `${data.missing_files} sem arquivo no UFDR` : '',
+          ...skipped,
+          ...warnings.filter((w) => !w.startsWith('Modo amostra')),
+          data.mode === 'sample'
+            ? 'Para processar o caso inteiro, use o botão Caso inteiro.'
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      )
+      queryClient.invalidateQueries({ queryKey: ['media', caseId] })
+      queryClient.invalidateQueries({ queryKey: ['pipelineStatus', caseId] })
+    },
+    onError: (e: Error) => setPipelineNote(e.message),
   })
 
   const displayMedia = showOnlyDetections ? mediaWithDetections : media
@@ -761,23 +1054,77 @@ function MediaTab({ caseId }: { caseId: string }) {
       <PageHeader
         icon={Image}
         title="Mídia"
-        description={`${mediaTotal.toLocaleString()} arquivo(s) · página ${mediaPage + 1} de ${Math.max(1, Math.ceil(mediaTotal / MEDIA_PAGE_SIZE))}`}
-        actions={
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => pipelineMutation.mutate()}
-            disabled={pipelineMutation.isPending}
-          >
-            {pipelineMutation.isPending ? (
-              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-            ) : (
-              <Scan className="mr-2 h-3 w-3" />
-            )}
-            Pipeline
-          </Button>
-        }
+        description={`${mediaTotal.toLocaleString()} na galeria · ${cacheFiles.toLocaleString()} no disco · página ${mediaPage + 1} de ${Math.max(1, Math.ceil(mediaTotal / MEDIA_PAGE_SIZE))}`}
       />
+
+      <Card className="mb-4">
+        <CardContent className="py-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">Pipeline de detecção</p>
+              <p className="mt-1 max-w-xl text-xs text-dim">
+                Amostra processa 80 imagens e 40 áudios. Caso inteiro percorre toda a mídia extraível e pode demorar.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => pipelineMutation.mutate('sample')}
+                disabled={pipelineMutation.isPending || jobsBusy}
+              >
+                {pipelineMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Scan className="h-3 w-3" />
+                )}
+                Amostra
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  const ok = window.confirm(
+                    `Vai processar toda a mídia extraível deste caso (${mediaTotal.toLocaleString()} hashes na galeria). Pode demorar. Continuar?`,
+                  )
+                  if (ok) pipelineMutation.mutate('all')
+                }}
+                disabled={pipelineMutation.isPending || jobsBusy}
+              >
+                Caso inteiro
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {pipelineNote && (
+        <Card className="mb-4 border-warning/20">
+          <CardContent className="py-3 text-sm text-muted">{pipelineNote}</CardContent>
+        </Card>
+      )}
+
+      {pipelineJobs.length > 0 && (
+        <Card className="mb-4">
+          <CardContent className="space-y-2 py-4">
+            {pipelineJobs.map((j) => (
+              <div key={j.job_id} className="flex items-center gap-3">
+                <span className="w-16 shrink-0 text-xs font-medium uppercase text-muted">{j.kind}</span>
+                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-white/40"
+                    style={{ width: `${Math.round((j.progress ?? 0) * 100)}%` }}
+                  />
+                </div>
+                <span className="w-10 shrink-0 text-right text-xs tabular-nums text-dim">
+                  {Math.round((j.progress ?? 0) * 100)}%
+                </span>
+                <span className="max-w-[14rem] truncate text-xs text-dim">{j.message}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="mb-6">
         <CardContent>
@@ -881,9 +1228,26 @@ function MediaTab({ caseId }: { caseId: string }) {
             const detectionCount =
               'detection_count' in m ? (m as { detection_count: number }).detection_count : 0
 
+            const expandable = isExpandableMedia(m.mime_type)
             return (
               <Card key={m.hash} className="overflow-hidden hover:border-border-hover">
-                <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-surface-elevated">
+                <div
+                  className={`relative flex aspect-square items-center justify-center overflow-hidden bg-surface-elevated ${
+                    expandable ? 'cursor-zoom-in' : ''
+                  }`}
+                  role={expandable ? 'button' : undefined}
+                  tabIndex={expandable ? 0 : undefined}
+                  onClick={() => {
+                    if (expandable) setPreview({ hash: m.hash, mimeType: m.mime_type })
+                  }}
+                  onKeyDown={(e) => {
+                    if (!expandable) return
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setPreview({ hash: m.hash, mimeType: m.mime_type })
+                    }
+                  }}
+                >
                   <MediaThumbnail hash={m.hash} mimeType={m.mime_type} caseId={caseId} />
 
                   {detections.length > 0 && (
@@ -952,45 +1316,59 @@ function MediaTab({ caseId }: { caseId: string }) {
           </Button>
         </div>
       )}
+
+      <MediaLightbox
+        open={preview !== null}
+        onClose={() => setPreview(null)}
+        caseId={caseId}
+        hash={preview?.hash ?? null}
+        mimeType={preview?.mimeType}
+      />
     </>
   )
 }
 
 function MediaThumbnail({ hash, mimeType, caseId }: { hash: string; mimeType?: string | null; caseId: string }) {
-  const [failed, setFailed] = useState(false)
-  const url = getMediaUrl(hash, caseId)
+  const [stage, setStage] = useState<'thumb' | 'full' | 'fail'>('thumb')
+  const thumbUrl = getThumbnailUrl(hash, caseId)
+  const fileUrl = getMediaUrl(hash, caseId)
+  const looksLikeImage =
+    !mimeType ||
+    mimeType.startsWith('image/') ||
+    mimeType === 'application/octet-stream'
 
-  if (failed || !mimeType) {
+  if (stage === 'fail') {
     return <Camera className="h-8 w-8 text-dim" />
   }
 
-  if (mimeType.startsWith('image/')) {
+  if (looksLikeImage) {
+    const src = stage === 'thumb' ? thumbUrl : fileUrl
     return (
       <img
-        src={url}
-        alt={mimeType}
+        src={src}
+        alt={mimeType || 'imagem'}
         className="h-full w-full object-contain"
         loading="lazy"
-        onError={() => setFailed(true)}
+        onError={() => setStage((s) => (s === 'thumb' ? 'full' : 'fail'))}
       />
     )
   }
 
-  if (mimeType.startsWith('video/')) {
+  if (mimeType?.startsWith('video/')) {
     return (
       <video
-        src={url}
+        src={fileUrl}
         className="h-full w-full object-contain"
         preload="metadata"
-        onError={() => setFailed(true)}
+        onError={() => setStage('fail')}
       />
     )
   }
 
-  if (mimeType.startsWith('audio/')) {
+  if (mimeType?.startsWith('audio/')) {
     return (
       <div className="flex h-full w-full items-center justify-center">
-        <audio src={url} controls className="w-full px-2" onError={() => setFailed(true)} />
+        <audio src={fileUrl} controls className="w-full px-2" onError={() => setStage('fail')} />
       </div>
     )
   }
@@ -998,25 +1376,26 @@ function MediaThumbnail({ hash, mimeType, caseId }: { hash: string; mimeType?: s
   if (mimeType === 'application/pdf') {
     return (
       <iframe
-        src={url}
+        src={fileUrl}
         title="PDF"
         className="h-full w-full"
         style={{ border: 'none', backgroundColor: '#fff' }}
-        onError={() => setFailed(true)}
+        onError={() => setStage('fail')}
       />
     )
   }
 
   const isTextLike =
-    mimeType.startsWith('text/') ||
-    mimeType === 'application/json' ||
-    mimeType === 'application/xml' ||
-    mimeType === 'application/javascript' ||
-    mimeType.endsWith('+json') ||
-    mimeType.endsWith('+xml')
+    !!mimeType &&
+    (mimeType.startsWith('text/') ||
+      mimeType === 'application/json' ||
+      mimeType === 'application/xml' ||
+      mimeType === 'application/javascript' ||
+      mimeType.endsWith('+json') ||
+      mimeType.endsWith('+xml'))
 
   if (isTextLike) {
-    return <TextFilePreview url={url} onFail={() => setFailed(true)} />
+    return <TextFilePreview url={fileUrl} onFail={() => setStage('fail')} />
   }
 
   return (
@@ -1063,33 +1442,13 @@ function TextFilePreview({ url, onFail }: { url: string; onFail: () => void }) {
   )
 }
 
-function GraphTab({ caseId }: { caseId: string }) {
-  const { data: graph, isLoading } = useQuery({
-    queryKey: ['graph', caseId],
-    queryFn: () => apiGetGraph(caseId),
-  })
-
-  return (
-    <>
-      <PageHeader icon={GitBranch} title="Mapa de Relações" />
-      {isLoading ? (
-        <Loader2 className="h-5 w-5 animate-spin text-muted" />
-      ) : (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <GitBranch className="mx-auto mb-3 h-8 w-8 text-dim" />
-            <p className="text-sm text-muted">
-              {graph?.nodes?.length || 0} nós, {graph?.edges?.length || 0} conexões
-            </p>
-            <p className="mt-1 text-xs text-dim">Visualização em grafo em breve</p>
-          </CardContent>
-        </Card>
-      )}
-    </>
-  )
-}
-
-function PlaybooksTab({ caseId }: { caseId: string }) {
+function PlaybooksTab({
+  caseId,
+  onOpenReports,
+}: {
+  caseId: string
+  onOpenReports: () => void
+}) {
   const queryClient = useQueryClient()
   const [executingId, setExecutingId] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<Record<string, unknown> | null>(null)
@@ -1109,6 +1468,7 @@ function PlaybooksTab({ caseId }: { caseId: string }) {
       setLastResult(data as Record<string, unknown>)
       setExecutingId(null)
       queryClient.invalidateQueries({ queryKey: ['playbooks'] })
+      queryClient.invalidateQueries({ queryKey: ['reports', caseId] })
     },
     onError: () => {
       setExecutingId(null)
@@ -1160,7 +1520,7 @@ function PlaybooksTab({ caseId }: { caseId: string }) {
                       </span>
                     </div>
 
-                    {lastResult.results && typeof lastResult.results === 'object' && (
+                    {lastResult.results && typeof lastResult.results === 'object' ? (
                       <div className="space-y-2">
                         {Object.entries(lastResult.results as Record<string, Record<string, unknown>>).map(
                           ([stepId, result]) => (
@@ -1189,6 +1549,19 @@ function PlaybooksTab({ caseId }: { caseId: string }) {
                           ),
                         )}
                       </div>
+                    ) : null}
+                    {Object.values(
+                      (lastResult.results ?? {}) as Record<string, { output?: { report_id?: string } }>,
+                    ).some((r) => r.output?.report_id) && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="mt-3"
+                        onClick={onOpenReports}
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        Abrir Relatórios
+                      </Button>
                     )}
                   </div>
                 )}
@@ -1201,25 +1574,25 @@ function PlaybooksTab({ caseId }: { caseId: string }) {
   )
 }
 
-function OpsTab() {
+function OpsTab({ caseId }: { caseId: string }) {
   const { data: ops, isLoading } = useQuery({
     queryKey: ['ops-health'],
     queryFn: () => apiOpsHealth(),
     refetchInterval: 30000,
   })
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-16">
-        <Loader2 className="h-5 w-5 animate-spin text-muted" />
-      </div>
-    )
-  }
-
   return (
     <>
+      <IngestPanel caseId={caseId} />
+
       <PageHeader icon={Cpu} title="Operação" description="Status dos serviços" />
 
+      {isLoading ? (
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-5 w-5 animate-spin text-muted" />
+        </div>
+      ) : (
+        <>
       {ops?.alerts && ops.alerts.length > 0 && (
         <Card className="mb-6 border-warning/20 bg-warning/5">
           <CardContent className="py-4">
@@ -1255,6 +1628,24 @@ function OpsTab() {
         ))}
       </div>
 
+      {ops?.queues && ops.queues.length > 0 && (
+        <div className="mt-8">
+          <h3 className="mb-3 text-sm font-medium text-foreground">Filas</h3>
+          <div className="space-y-2">
+            {ops.queues.map((q) => (
+              <Card key={q.stage}>
+                <CardContent className="flex items-center justify-between py-3 text-sm">
+                  <span className="text-foreground">{q.stage}</span>
+                  <span className="font-mono text-xs text-dim">
+                    pendentes {q.pending} · em curso {q.processing} · falhas {q.failed}
+                  </span>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
       {ops?.disk_usage && (
         <Card className="mt-6">
           <CardContent>
@@ -1273,6 +1664,8 @@ function OpsTab() {
             </div>
           </CardContent>
         </Card>
+      )}
+        </>
       )}
     </>
   )
@@ -1346,11 +1739,18 @@ function PlatesTab({ caseId }: { caseId: string }) {
   )
 }
 
+function formatAudioBytes(n: number | null | undefined): string | null {
+  if (n == null || n <= 0) return null
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
 function TranscriptionsTab({ caseId }: { caseId: string }) {
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  const { data: transcriptions = [], isLoading } = useQuery({
+  const { data: transcriptions = [], isLoading, isError, error: listError } = useQuery({
     queryKey: ['transcriptions', caseId, search],
     queryFn: () => apiListTranscriptions(caseId, search || undefined),
   })
@@ -1369,40 +1769,96 @@ function TranscriptionsTab({ caseId }: { caseId: string }) {
       </div>
       {isLoading ? (
         <Loader2 className="h-5 w-5 animate-spin text-muted" />
+      ) : isError ? (
+        <EmptyState
+          icon={Mic}
+          title="Falha ao carregar transcrições"
+          description={listError instanceof Error ? listError.message : 'Erro na API'}
+        />
       ) : transcriptions.length === 0 ? (
         <EmptyState icon={Mic} title="Nenhuma transcrição" description="Execute o pipeline de detecção para transcrever áudios" />
       ) : (
         <div className="space-y-3">
           {transcriptions.map((t) => {
             const isExpanded = expandedId === t.id
+            const sizeLabel = formatAudioBytes(t.size_bytes)
             return (
               <Card key={t.id} className="hover:border-border-hover">
-                <CardContent className="py-3">
+                <CardContent className="py-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Mic className="h-4 w-4 shrink-0 text-dim" />
+                    <span className="truncate font-mono text-sm text-foreground">
+                      {t.file_name || t.media_hash.slice(0, 16)}
+                    </span>
+                    {t.language && <Badge className="text-[10px]">{t.language}</Badge>}
+                    {sizeLabel && <span className="text-xs text-dim">{sizeLabel}</span>}
+                    <span className="text-[10px] text-dim">
+                      {new Date(t.created_at).toLocaleString('pt-BR')}
+                    </span>
+                  </div>
+
+                  {(t.app || t.whatsapp_id || t.sender) && (
+                    <p className="mt-2 text-xs text-muted">
+                      {[t.app, t.whatsapp_id, t.sender || t.counterpart]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  )}
+
+                  {(t.original_path || t.source_member) && (
+                    <p
+                      className="mt-1 truncate font-mono text-[11px] text-dim"
+                      title={t.original_path || t.source_member || undefined}
+                    >
+                      Origem: {t.original_path || t.source_member}
+                    </p>
+                  )}
+                  {t.original_path && t.source_member && t.source_member !== t.original_path && (
+                    <p
+                      className="mt-0.5 truncate font-mono text-[11px] text-dim"
+                      title={t.source_member}
+                    >
+                      Artifact: {t.source_member}
+                    </p>
+                  )}
+                  {t.document_title && (
+                    <p className="mt-0.5 truncate text-[11px] text-dim" title={t.document_title}>
+                      Document: {t.document_title}
+                    </p>
+                  )}
+                  <p className="mt-1 font-mono text-[10px] text-dim" title={t.media_hash}>
+                    SHA-256 {t.media_hash.slice(0, 16)}…
+                  </p>
+
+                  <audio
+                    controls
+                    preload="metadata"
+                    className="mt-3 w-full"
+                    src={getMediaUrl(t.media_hash, caseId)}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    O navegador não reproduz este áudio.
+                  </audio>
+
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 text-left"
+                    className="mt-3 w-full text-left"
                     onClick={() => setExpandedId(isExpanded ? null : t.id)}
                   >
-                    <Mic className="h-4 w-4 shrink-0 text-dim" />
-                    <span className="text-[10px] text-dim">
-                      {t.language || 'unknown'} | {new Date(t.created_at).toLocaleString('pt-BR')}
-                    </span>
-                  </button>
-                  <p className={cn(
-                    'mt-2 text-sm text-foreground leading-relaxed',
-                    !isExpanded && 'line-clamp-3',
-                  )}>
-                    {t.text}
-                  </p>
-                  {t.text.length > 200 && (
-                    <button
-                      type="button"
-                      className="mt-1 text-xs text-accent hover:underline"
-                      onClick={() => setExpandedId(isExpanded ? null : t.id)}
+                    <p
+                      className={cn(
+                        'text-sm leading-relaxed text-foreground',
+                        !isExpanded && 'line-clamp-3',
+                      )}
                     >
-                      {isExpanded ? 'Recolher' : 'Expandir'}
-                    </button>
-                  )}
+                      {t.text}
+                    </p>
+                    {t.text.length > 200 && (
+                      <span className="mt-1 inline-block text-xs text-muted">
+                        {isExpanded ? 'Recolher' : 'Expandir texto'}
+                      </span>
+                    )}
+                  </button>
                 </CardContent>
               </Card>
             )

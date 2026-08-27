@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from .audit import append_audit
 from .auth import CurrentUser, get_current_user, require_case_member
+from .contact_materialize import list_agenda_contacts
 from .db import get_session_factory
 from .export_formats import (
     TIMELINE_CSV_HEADER,
@@ -71,51 +72,7 @@ def _audit_export(
 
 def _load_contacts(db: Session, case_id: UUID) -> list[dict]:
     """One Contact per person entity, with linked phones/emails via contact_of."""
-    people = db.execute(
-        text("""
-            SELECT p.id, COALESCE(NULLIF(p.display_name, ''), p.value) AS name
-            FROM entities p
-            WHERE p.case_id = :cid AND p.kind = 'person'
-            ORDER BY name NULLS LAST, p.id
-        """),
-        {"cid": case_id},
-    ).mappings().all()
-
-    linked = db.execute(
-        text("""
-            SELECT el.src_id AS person_id, d.kind, d.value
-            FROM entity_links el
-            JOIN entities d ON d.id = el.dst_id
-            WHERE el.case_id = :cid
-              AND el.kind = 'contact_of'
-              AND d.kind IN ('phone', 'email')
-              AND d.value IS NOT NULL
-        """),
-        {"cid": case_id},
-    ).mappings().all()
-
-    by_person: dict[str, dict] = {}
-    for p in people:
-        pid = str(p["id"])
-        by_person[pid] = {
-            "name": p["name"] or "Unknown",
-            "phones": [],
-            "emails": [],
-        }
-
-    for row in linked:
-        pid = str(row["person_id"])
-        if pid not in by_person:
-            continue
-        val = row["value"]
-        if row["kind"] == "phone":
-            if val not in by_person[pid]["phones"]:
-                by_person[pid]["phones"].append(val)
-        else:
-            if val not in by_person[pid]["emails"]:
-                by_person[pid]["emails"].append(val)
-
-    return list(by_person.values())
+    return list_agenda_contacts(db, case_id)
 
 
 # ── Existing ZIP export ───────────────────────────────────────────────────

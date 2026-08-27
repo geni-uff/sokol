@@ -7,12 +7,22 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from .db import get_session_factory
 from .llm import check_lmstudio_health
+
+ML_SERVICES = (
+    ("embed", "http://localhost:8001/health"),
+    ("vision", "http://localhost:8007/health"),
+    ("ocr", "http://localhost:8008/health"),
+    ("asr", "http://localhost:8009/health"),
+    ("plate", "http://localhost:8010/health"),
+    ("face", "http://localhost:8011/health"),
+)
 
 router = APIRouter(prefix="/ops", tags=["ops"])
 
@@ -72,6 +82,30 @@ async def check_postgres() -> ServiceHealth:
         return ServiceHealth(name="postgres", status="down", details={"error": str(e)})
 
 
+async def check_ml_service(name: str, url: str) -> ServiceHealth:
+    try:
+        start = time.monotonic()
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(url)
+        latency = (time.monotonic() - start) * 1000
+        details = None
+        status = "ok" if resp.status_code == 200 else "down"
+        try:
+            body = resp.json()
+            if isinstance(body, dict):
+                details = body
+                inner = str(body.get("status") or "").lower()
+                if inner in ("loading", "starting"):
+                    status = "degraded"
+        except Exception:
+            pass
+        return ServiceHealth(
+            name=name, status=status, latency_ms=round(latency, 2), details=details
+        )
+    except Exception as e:
+        return ServiceHealth(name=name, status="down", details={"error": str(e)})
+
+
 async def check_worker() -> ServiceHealth:
     try:
         factory = get_session_factory()
@@ -111,7 +145,15 @@ async def ops_health():
     worker_health = await check_worker()
     services.append(worker_health)
     if worker_health.status == "degraded":
-        alerts.append("Worker queue has high pending count")
+        alerts.append("Fila do worker com muitos jobs pendentes")
+
+    for name, url in ML_SERVICES:
+        ml_health = await check_ml_service(name, url)
+        services.append(ml_health)
+        if ml_health.status == "down":
+            alerts.append(f"Serviço ML {name} indisponível")
+        elif ml_health.status == "degraded":
+            alerts.append(f"Serviço ML {name} ainda carregando")
 
     # Check disk usage
     disk_usage = _get_disk_usage()

@@ -12,15 +12,20 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from .auth import CurrentUser, get_current_user, require_platform_admin
+from .chunk_jobs import chunk_messages
 from .db import get_session_factory
 from .jobs import emit_progress
+from .media import sniff_image_mime
+from .plate_parse import PLATE_DETECT_PATH, parse_plate_service_payload
+from .ufdr_extract import ensure_media_on_disk
 
 router = APIRouter(prefix="/detect", tags=["detect"])
 
@@ -36,6 +41,12 @@ OCR_URL = "http://localhost:8008"
 class PipelineResult(BaseModel):
     jobs_launched: int
     job_ids: dict[str, str]
+    skipped: dict[str, str] = {}
+    warnings: list[str] = []
+    mode: str = "sample"
+    image_count: int = 0
+    audio_count: int = 0
+    missing_files: int = 0
 
 
 class JobStatus(BaseModel):
@@ -47,55 +58,158 @@ class JobStatus(BaseModel):
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
-def _find_media_file(media_hash: str) -> Optional[Path]:
-    if not MEDIA_CACHE.exists():
+PREFERRED_IMAGE = ("image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic")
+
+
+def _find_media_file(media_hash: str, case_id: str | None = None) -> Optional[Path]:
+    if MEDIA_CACHE.exists():
+        direct = MEDIA_CACHE / media_hash
+        if direct.is_file() and direct.stat().st_size > 0:
+            return direct
+        for ext in [".jpg", ".jpeg", ".png", ".webp"]:
+            candidate = MEDIA_CACHE / f"{media_hash}{ext}"
+            if candidate.exists():
+                return candidate
+    if not case_id:
         return None
-    direct = MEDIA_CACHE / media_hash
-    if direct.is_file():
-        return direct
-    for ext in [".jpg", ".jpeg", ".png", ".webp"]:
-        candidate = MEDIA_CACHE / f"{media_hash}{ext}"
-        if candidate.exists():
-            return candidate
-    return None
+    factory = get_session_factory()
+    with factory() as db:
+        row = db.execute(
+            text("SELECT storage_ref FROM media WHERE hash = :h"),
+            {"h": media_hash},
+        ).mappings().first()
+        ref = row["storage_ref"] if row else {}
+        if isinstance(ref, str):
+            try:
+                ref = json.loads(ref)
+            except json.JSONDecodeError:
+                ref = {}
+        return ensure_media_on_disk(db, case_id, media_hash, ref)
+
+
+def _list_case_media(db, case_id: str, mime_prefix: str) -> list[dict]:
+    rows = (
+        db.execute(
+            text("""
+            SELECT DISTINCT m.hash, m.mime_type, m.storage_ref
+            FROM media m
+            LEFT JOIN (SELECT media_hash FROM messages WHERE case_id = :cid AND media_hash IS NOT NULL) msg
+              ON msg.media_hash = m.hash
+            LEFT JOIN (SELECT media_hash FROM artifacts WHERE case_id = :cid AND media_hash IS NOT NULL) art
+              ON art.media_hash = m.hash
+            WHERE (msg.media_hash IS NOT NULL OR art.media_hash IS NOT NULL)
+              AND (
+                m.mime_type LIKE :prefix
+                OR m.mime_type = 'application/octet-stream'
+              )
+        """),
+            {"cid": case_id, "prefix": f"{mime_prefix}%"},
+        )
+        .mappings()
+        .all()
+    )
+    out = []
+    for r in rows:
+        ref = r["storage_ref"] or {}
+        if isinstance(ref, str):
+            try:
+                ref = json.loads(ref)
+            except json.JSONDecodeError:
+                ref = {}
+        out.append({"hash": r["hash"], "mime_type": r["mime_type"] or "", "storage_ref": ref})
+    return out
 
 
 def _get_case_images(db, case_id: str) -> list[str]:
-    rows = (
-        db.execute(
-            text("""
-            SELECT DISTINCT m.hash
-            FROM media m
-            LEFT JOIN (SELECT media_hash FROM messages WHERE case_id = :cid AND media_hash IS NOT NULL) msg ON msg.media_hash = m.hash
-            LEFT JOIN (SELECT media_hash FROM artifacts WHERE case_id = :cid AND media_hash IS NOT NULL) art ON art.media_hash = m.hash
-            WHERE (msg.media_hash IS NOT NULL OR art.media_hash IS NOT NULL)
-              AND m.mime_type LIKE 'image/%'
-        """),
-            {"cid": case_id},
-        )
-        .mappings()
-        .all()
-    )
-    return [r["hash"] for r in rows]
+    return [r["hash"] for r in _list_case_media(db, case_id, "image/")]
 
 
 def _get_case_audios(db, case_id: str) -> list[str]:
-    rows = (
+    return [r["hash"] for r in _list_case_media(db, case_id, "audio/")]
+
+
+def _select_and_extract(
+    db,
+    case_id: str,
+    items: list[dict],
+    *,
+    mode: str,
+    limit: int,
+    preferred_mimes: tuple[str, ...],
+) -> tuple[list[str], int]:
+    """Prefer real image/audio MIME, extract from UFDR, drop hashes with no file."""
+    preferred = [i for i in items if (i["mime_type"] or "").lower() in preferred_mimes]
+    rest = [i for i in items if i not in preferred]
+    ordered = preferred + rest
+    selected: list[str] = []
+    missing = 0
+    cap = None if mode == "all" else limit
+    max_attempts = None if mode == "all" else max(limit * 10, 200)
+    attempts = 0
+    for item in ordered:
+        if cap is not None and len(selected) >= cap:
+            break
+        if max_attempts is not None and attempts >= max_attempts:
+            break
+        attempts += 1
+        path = ensure_media_on_disk(db, case_id, item["hash"], item["storage_ref"])
+        if path is None:
+            missing += 1
+            continue
+        sniffed = sniff_image_mime(path)
+        if sniffed and (item["mime_type"] or "").startswith("application/"):
+            db.execute(
+                text("UPDATE media SET mime_type = :m WHERE hash = :h"),
+                {"m": sniffed, "h": item["hash"]},
+            )
+        selected.append(item["hash"])
+    db.commit()
+    return selected, missing
+
+
+def _open_face_pendencias(case_id: str, stored: int) -> None:
+    """Create Pendências (Indicator) for unlabeled faces so the review queue is usable."""
+    factory = get_session_factory()
+    with factory() as db:
+        user_id = db.execute(text("SELECT id FROM users LIMIT 1")).scalar()
+        if not user_id:
+            return
+        unlabeled = db.execute(
+            text("""
+                SELECT COUNT(*) FROM face_embeddings
+                WHERE case_id = :cid AND (label IS NULL OR label = '')
+            """),
+            {"cid": case_id},
+        ).scalar() or 0
+        if unlabeled == 0:
+            return
+        existing = db.execute(
+            text("""
+                SELECT 1 FROM pendencias
+                WHERE case_id = :cid AND title LIKE 'Rostos sem identificação%'
+                  AND status = 'open'
+                LIMIT 1
+            """),
+            {"cid": case_id},
+        ).fetchone()
+        if existing:
+            return
         db.execute(
             text("""
-            SELECT DISTINCT m.hash
-            FROM media m
-            LEFT JOIN (SELECT media_hash FROM messages WHERE case_id = :cid AND media_hash IS NOT NULL) msg ON msg.media_hash = m.hash
-            LEFT JOIN (SELECT media_hash FROM artifacts WHERE case_id = :cid AND media_hash IS NOT NULL) art ON art.media_hash = m.hash
-            WHERE (msg.media_hash IS NOT NULL OR art.media_hash IS NOT NULL)
-              AND (m.mime_type LIKE 'audio/%' OR m.mime_type = 'application/octet-stream')
-        """),
-            {"cid": case_id},
+                INSERT INTO pendencias (id, case_id, title, description, priority, created_by)
+                VALUES (gen_random_uuid(), :cid, :title, :descr, 'medium', :uid)
+            """),
+            {
+                "cid": case_id,
+                "title": f"Rostos sem identificação ({unlabeled} Indicator)",
+                "descr": (
+                    f"{stored} embedding(s) novos. Confirme na aba Rostos antes de tratar "
+                    "como Fact (ADR-0004)."
+                ),
+                "uid": user_id,
+            },
         )
-        .mappings()
-        .all()
-    )
-    return [r["hash"] for r in rows]
+        db.commit()
 
 
 # ── Job runners (run in background threads) ────────────────────────────────
@@ -108,6 +222,7 @@ def _run_yolo_job(job_id: str, case_id: str, image_hashes: list[str]):
             "running",
             0.0,
             f"Detecting objects in {len(image_hashes)} images...",
+            case_id=case_id,
         )
 
         total = len(image_hashes)
@@ -119,7 +234,7 @@ def _run_yolo_job(job_id: str, case_id: str, image_hashes: list[str]):
             paths = []
             hashes = []
             for h in batch:
-                p = _find_media_file(h)
+                p = _find_media_file(h, case_id)
                 if p:
                     paths.append(str(p))
                     hashes.append(h)
@@ -185,11 +300,16 @@ def _run_yolo_job(job_id: str, case_id: str, image_hashes: list[str]):
                 )
 
         emit_progress(
-            job_id, "yolo", "completed", 1.0, f"Done: {total_dets} object detections"
+            job_id,
+            "yolo",
+            "completed",
+            1.0,
+            f"Done: {total_dets} object detections",
+            case_id=case_id,
         )
 
     except Exception as e:
-        emit_progress(job_id, "yolo", "failed", 0.0, str(e))
+        emit_progress(job_id, "yolo", "failed", 0.0, str(e), case_id=case_id)
 
 
 def _run_face_job(job_id: str, case_id: str, image_hashes: list[str]):
@@ -201,13 +321,14 @@ def _run_face_job(job_id: str, case_id: str, image_hashes: list[str]):
             "running",
             0.0,
             f"Detecting faces in {len(image_hashes)} images...",
+            case_id=case_id,
         )
 
         total = len(image_hashes)
         total_stored = 0
 
         for i, h in enumerate(image_hashes):
-            p = _find_media_file(h)
+            p = _find_media_file(h, case_id)
             if not p:
                 continue
 
@@ -273,10 +394,13 @@ def _run_face_job(job_id: str, case_id: str, image_hashes: list[str]):
             "completed",
             1.0,
             f"Done: {total_stored} face embeddings stored",
+            case_id=case_id,
         )
+        if total_stored:
+            _open_face_pendencias(case_id, total_stored)
 
     except Exception as e:
-        emit_progress(job_id, "faces", "failed", 0.0, str(e))
+        emit_progress(job_id, "faces", "failed", 0.0, str(e), case_id=case_id)
 
 
 def _run_plate_job(job_id: str, case_id: str, image_hashes: list[str]):
@@ -288,13 +412,14 @@ def _run_plate_job(job_id: str, case_id: str, image_hashes: list[str]):
             "running",
             0.0,
             f"Detecting plates in {len(image_hashes)} images...",
+            case_id=case_id,
         )
 
         total = len(image_hashes)
         total_plates = 0
 
         for i, h in enumerate(image_hashes):
-            p = _find_media_file(h)
+            p = _find_media_file(h, case_id)
             if not p:
                 continue
 
@@ -302,11 +427,13 @@ def _run_plate_job(job_id: str, case_id: str, image_hashes: list[str]):
                 with httpx.Client(timeout=60) as client:
                     with open(p, "rb") as f:
                         files = {"file": (p.name, f, "image/jpeg")}
-                        resp = client.post(f"{PLATE_URL}/api/plate", files=files)
+                        resp = client.post(
+                            f"{PLATE_URL}{PLATE_DETECT_PATH}", files=files
+                        )
                         resp.raise_for_status()
                         result = resp.json()
 
-                plates = result.get("plates", [])
+                plates = parse_plate_service_payload(result)
                 if plates:
                     factory = get_session_factory()
                     with factory() as db:
@@ -320,9 +447,9 @@ def _run_plate_job(job_id: str, case_id: str, image_hashes: list[str]):
                                 {
                                     "cid": case_id,
                                     "hash": h,
-                                    "text": plate.get("plate", ""),
-                                    "conf": plate.get("confidence", 0),
-                                    "bbox": json.dumps(plate.get("bbox", [])),
+                                    "text": plate["plate_text"],
+                                    "conf": plate["confidence"],
+                                    "bbox": json.dumps(plate["bbox"]),
                                 },
                             )
                             total_plates += 1
@@ -338,15 +465,21 @@ def _run_plate_job(job_id: str, case_id: str, image_hashes: list[str]):
                         f"Image {i + 1}/{total}: {total_plates} plates",
                     )
 
-            except Exception:
+            except Exception as e:
+                print(f"[pipeline] plate detect failed hash={h[:12]}: {e}")
                 continue
 
         emit_progress(
-            job_id, "plates", "completed", 1.0, f"Done: {total_plates} plates detected"
+            job_id,
+            "plates",
+            "completed",
+            1.0,
+            f"Done: {total_plates} plates detected",
+            case_id=case_id,
         )
 
     except Exception as e:
-        emit_progress(job_id, "plates", "failed", 0.0, str(e))
+        emit_progress(job_id, "plates", "failed", 0.0, str(e), case_id=case_id)
 
 
 def _run_asr_job(job_id: str, case_id: str, audio_hashes: list[str]):
@@ -358,13 +491,14 @@ def _run_asr_job(job_id: str, case_id: str, audio_hashes: list[str]):
             "running",
             0.0,
             f"Transcribing {len(audio_hashes)} audio files...",
+            case_id=case_id,
         )
 
         total = len(audio_hashes)
         total_transcribed = 0
 
         for i, h in enumerate(audio_hashes):
-            p = _find_media_file(h)
+            p = _find_media_file(h, case_id)
             if not p:
                 continue
 
@@ -417,10 +551,11 @@ def _run_asr_job(job_id: str, case_id: str, audio_hashes: list[str]):
             "completed",
             1.0,
             f"Done: {total_transcribed} audio transcriptions",
+            case_id=case_id,
         )
 
     except Exception as e:
-        emit_progress(job_id, "asr", "failed", 0.0, str(e))
+        emit_progress(job_id, "asr", "failed", 0.0, str(e), case_id=case_id)
 
 
 def _run_ocr_job(job_id: str, case_id: str, image_hashes: list[str]):
@@ -432,13 +567,14 @@ def _run_ocr_job(job_id: str, case_id: str, image_hashes: list[str]):
             "running",
             0.0,
             f"Extracting text from {len(image_hashes)} images...",
+            case_id=case_id,
         )
 
         total = len(image_hashes)
         total_extracted = 0
 
         for i, h in enumerate(image_hashes):
-            p = _find_media_file(h)
+            p = _find_media_file(h, case_id)
             if not p:
                 continue
 
@@ -500,36 +636,91 @@ def _run_ocr_job(job_id: str, case_id: str, image_hashes: list[str]):
             "completed",
             1.0,
             f"Done: {total_extracted} images with extracted text",
+            case_id=case_id,
         )
 
     except Exception as e:
-        emit_progress(job_id, "ocr", "failed", 0.0, str(e))
+        emit_progress(job_id, "ocr", "failed", 0.0, str(e), case_id=case_id)
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
 @router.post("/pipeline/{case_id}", response_model=PipelineResult)
-async def launch_pipeline(case_id: str):
-    """Launch parallel detection jobs for a case (YOLO, faces, plates, ASR)."""
+async def launch_pipeline(
+    case_id: str,
+    mode: str = Query("sample", pattern="^(sample|all)$"),
+    sample_images: int = Query(80, ge=1, le=5000),
+    sample_audios: int = Query(40, ge=1, le=2000),
+):
+    """Launch parallel detection jobs. Default is a sample, not the full case."""
     factory = get_session_factory()
     with factory() as db:
         case = db.execute(
             text("SELECT id FROM cases WHERE id = :id"), {"id": case_id}
         ).fetchone()
         if not case:
-            raise HTTPException(status_code=404, detail="Case not found")
+            raise HTTPException(status_code=404, detail="Caso não encontrado")
 
-        image_hashes = _get_case_images(db, case_id)
-        audio_hashes = _get_case_audios(db, case_id)
+        image_items = _list_case_media(db, case_id, "image/")
+        audio_items = _list_case_media(db, case_id, "audio/")
+        image_hashes, img_missing = _select_and_extract(
+            db,
+            case_id,
+            image_items,
+            mode=mode,
+            limit=sample_images,
+            preferred_mimes=PREFERRED_IMAGE,
+        )
+        audio_hashes, aud_missing = _select_and_extract(
+            db,
+            case_id,
+            audio_items,
+            mode=mode,
+            limit=sample_audios,
+            preferred_mimes=("audio/opus", "audio/mpeg", "audio/mp4", "audio/ogg", "audio/wav"),
+        )
 
-    job_ids = {}
+    skipped: dict[str, str] = {}
+    warnings: list[str] = []
+    job_ids: dict[str, str] = {}
+    missing_files = img_missing + aud_missing
+    if missing_files:
+        warnings.append(f"{missing_files} arquivo(s) sem binário no UFDR/cache")
+    if mode == "sample":
+        warnings.append(
+            f"Modo amostra: {len(image_hashes)} imagem(ns), {len(audio_hashes)} áudio(s)"
+        )
+
+    async def _ok(url: str) -> bool:
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(f"{url}/health")
+            if resp.status_code != 200:
+                return False
+            try:
+                body = resp.json()
+            except Exception:
+                return True
+            if isinstance(body, dict) and str(body.get("status") or "").lower() in (
+                "loading",
+                "starting",
+            ):
+                return False
+            return True
+        except Exception:
+            return False
+
+    image_kinds = [
+        ("yolo", VISION_URL, _run_yolo_job),
+        ("faces", FACE_URL, _run_face_job),
+        ("plates", PLATE_URL, _run_plate_job),
+        ("ocr", OCR_URL, _run_ocr_job),
+    ]
 
     if image_hashes:
-        for kind, runner in [
-            ("yolo", _run_yolo_job),
-            ("faces", _run_face_job),
-            ("plates", _run_plate_job),
-            ("ocr", _run_ocr_job),
-        ]:
+        for kind, url, runner in image_kinds:
+            if not await _ok(url):
+                skipped[kind] = f"Serviço {kind} indisponível em {url}"
+                continue
             job_id = str(uuid4())
             job_ids[kind] = job_id
             emit_progress(
@@ -537,70 +728,113 @@ async def launch_pipeline(case_id: str):
                 kind,
                 "pending",
                 0.0,
-                f"Queued {kind} detection for {len(image_hashes)} images",
+                f"Na fila: {kind} em {len(image_hashes)} imagens",
+                case_id=case_id,
             )
             t = threading.Thread(
                 target=runner, args=(job_id, case_id, image_hashes), daemon=True
             )
             t.start()
+    else:
+        warnings.append("Nenhuma imagem extraível no caso para YOLO/faces/placas/OCR")
 
     if audio_hashes:
-        job_id = str(uuid4())
-        job_ids["asr"] = job_id
-        emit_progress(
-            job_id,
-            "asr",
-            "pending",
-            0.0,
-            f"Queued ASR for {len(audio_hashes)} audio files",
+        if await _ok(ASR_URL):
+            job_id = str(uuid4())
+            job_ids["asr"] = job_id
+            emit_progress(
+                job_id,
+                "asr",
+                "pending",
+                0.0,
+                f"Na fila: ASR em {len(audio_hashes)} áudios",
+                case_id=case_id,
+            )
+            t = threading.Thread(
+                target=_run_asr_job, args=(job_id, case_id, audio_hashes), daemon=True
+            )
+            t.start()
+        else:
+            skipped["asr"] = f"Serviço ASR indisponível em {ASR_URL}"
+    else:
+        warnings.append("Nenhum áudio extraível no caso para ASR")
+
+    if not job_ids and skipped:
+        raise HTTPException(
+            status_code=503,
+            detail="Nenhum serviço ML disponível: " + "; ".join(skipped.values()),
         )
-        t = threading.Thread(
-            target=_run_asr_job, args=(job_id, case_id, audio_hashes), daemon=True
-        )
-        t.start()
 
-    return PipelineResult(jobs_launched=len(job_ids), job_ids=job_ids)
+    return PipelineResult(
+        jobs_launched=len(job_ids),
+        job_ids=job_ids,
+        skipped=skipped,
+        warnings=warnings,
+        mode=mode,
+        image_count=len(image_hashes),
+        audio_count=len(audio_hashes),
+        missing_files=missing_files,
+    )
 
 
-@router.get("/status/{case_id}")
-async def pipeline_status(case_id: str):
-    """Get status of all detection jobs for a case."""
+@router.post("/chunk/{case_id}")
+def backfill_chunks(case_id: str):
+    """Build message chunks when ingest skipped them (lexical search backfill)."""
+    factory = get_session_factory()
+    with factory() as db:
+        case = db.execute(
+            text("SELECT id FROM cases WHERE id = :id"), {"id": case_id}
+        ).fetchone()
+        if not case:
+            raise HTTPException(status_code=404, detail="Caso não encontrado")
+        try:
+            count = chunk_messages(db, UUID(case_id))
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Falha ao gerar chunks: {e}"
+            ) from e
+    from .cache import cache_delete
+
+    cache_delete(f"sokol:stats:{case_id}")
+    return {"chunks_created": count, "case_id": case_id}
+
+
+def _collect_pipeline_jobs(case_id: str | None = None) -> list[dict]:
     from .jobs import _job_events
 
     pipeline_jobs = {}
     for job_id, events in _job_events.items():
-        if events:
-            latest = events[-1]
-            if latest.get("stage") in ("yolo", "faces", "plates", "asr"):
-                pipeline_jobs[job_id] = {
-                    "job_id": job_id,
-                    "kind": latest.get("stage"),
-                    "status": latest.get("status"),
-                    "progress": latest.get("progress", 0),
-                    "message": latest.get("message", ""),
-                }
-
+        if not events:
+            continue
+        latest = events[-1]
+        if latest.get("stage") not in ("yolo", "faces", "plates", "asr", "ocr"):
+            continue
+        if case_id and str(latest.get("case_id") or "") != str(case_id):
+            continue
+        pipeline_jobs[job_id] = {
+            "job_id": job_id,
+            "kind": latest.get("stage"),
+            "status": latest.get("status"),
+            "progress": latest.get("progress", 0),
+            "message": latest.get("message", ""),
+            "case_id": latest.get("case_id"),
+        }
     return list(pipeline_jobs.values())
 
 
-@router.get("/status")
-async def all_pipeline_status():
-    """Get status of all running pipeline jobs."""
-    from .jobs import _job_events
+@router.get("/pipeline/{case_id}")
+@router.get("/status/{case_id}")
+async def pipeline_status(case_id: str):
+    """Get status of detection jobs for this case only."""
+    return _collect_pipeline_jobs(case_id)
 
-    jobs = []
-    for job_id, events in _job_events.items():
-        if events:
-            latest = events[-1]
-            stage = latest.get("stage", "")
-            if stage in ("yolo", "faces", "plates", "asr"):
-                jobs.append(
-                    {
-                        "job_id": job_id,
-                        "kind": stage,
-                        "status": latest.get("status"),
-                        "progress": latest.get("progress", 0),
-                        "message": latest.get("message", ""),
-                    }
-                )
-    return jobs
+
+@router.get("/status")
+async def all_pipeline_status(
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Global pipeline jobs — platform admin only. Media tab uses /status/{case_id}."""
+    factory = get_session_factory()
+    with factory() as db:
+        require_platform_admin(db, user.user_id)
+    return _collect_pipeline_jobs(None)

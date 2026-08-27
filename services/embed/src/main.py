@@ -11,11 +11,26 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
-SOKOL_VERSION = "0.1.0"
+SOKOL_VERSION = "0.8.2"
 
 # ── Configuration ──────────────────────────────────────────────────────────
+# LM Studio / ADR-0006 aliases → Hugging Face repo ids (SentenceTransformer
+# treats names without "/" as sentence-transformers/<name>).
+_HF_ALIASES = {
+    "text-embedding-qwen3-embedding-0.6b": "Qwen/Qwen3-Embedding-0.6B",
+    "qwen3-embedding-0.6b": "Qwen/Qwen3-Embedding-0.6B",
+}
+
+
+def _resolve_hf_model_id(name: str) -> str:
+    key = name.strip()
+    return _HF_ALIASES.get(key) or _HF_ALIASES.get(key.lower()) or key
+
+
 DEFAULT_MODEL = os.getenv("SOKOL_DEFAULT_EMBED_MODEL", "Qwen/Qwen3-Embedding-0.6B")
-ACTIVE_MODEL = os.getenv("SOKOL_ACTIVE_EMBED_MODEL", DEFAULT_MODEL)
+ACTIVE_MODEL = _resolve_hf_model_id(
+    os.getenv("SOKOL_ACTIVE_EMBED_MODEL", DEFAULT_MODEL)
+)
 EMBED_DIM = int(os.getenv("SOKOL_EMBED_DIM", "1024"))
 GPU_DEVICE = os.getenv("SOKOL_GPU_AUX", "auto")
 

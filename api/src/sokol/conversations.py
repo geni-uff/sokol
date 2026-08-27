@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from .app_filter import app_filter_sql, app_filter_value
 from .auth import CurrentUser, get_current_user
 from .cases import require_case_member
 from .db import get_session_factory
@@ -56,25 +57,24 @@ def list_chats(
         conditions = ["case_id = :cid"]
         bind: dict = {"cid": case_id}
         if app:
-            conditions.append("app = :app")
-            bind["app"] = app
+            conditions.append(app_filter_sql("app"))
+            bind["app"] = app_filter_value(app)
 
         where = " AND ".join(conditions)
         rows = db.execute(
             text(f"""
                 SELECT
                     chat_id,
-                    app,
-                    -- Most common non-null counterpart as the "participant"
-                    (SELECT counterpart FROM messages m2
-                     WHERE m2.case_id = m.case_id AND m2.chat_id = m.chat_id
-                       AND m2.counterpart IS NOT NULL LIMIT 1) AS participant,
+                    (ARRAY_AGG(app ORDER BY ts DESC NULLS LAST)
+                     FILTER (WHERE app IS NOT NULL))[1] AS app,
+                    (ARRAY_AGG(counterpart ORDER BY ts DESC NULLS LAST)
+                     FILTER (WHERE counterpart IS NOT NULL))[1] AS participant,
                     COUNT(*) AS message_count,
                     MIN(ts)::text AS first_ts,
                     MAX(ts)::text AS last_ts
                 FROM messages m
                 WHERE {where}
-                GROUP BY chat_id, app, case_id
+                GROUP BY chat_id
                 ORDER BY MAX(ts) DESC NULLS LAST
                 LIMIT 200
             """),
@@ -113,8 +113,8 @@ def list_messages(
         bind: dict = {"cid": case_id, "limit": limit, "offset": offset}
 
         if app:
-            conditions.append("app = :app")
-            bind["app"] = app
+            conditions.append(app_filter_sql("app"))
+            bind["app"] = app_filter_value(app)
         if chat_id:
             conditions.append("chat_id = :chat_id")
             bind["chat_id"] = chat_id
@@ -125,15 +125,30 @@ def list_messages(
         where = " AND ".join(conditions)
 
         total = db.execute(
-            text(f"SELECT COUNT(*) FROM messages WHERE {where}"), bind
+            text(f"""
+                SELECT COUNT(*) FROM (
+                    SELECT DISTINCT ON (COALESCE(chat_id,''), ts, COALESCE(text,''), COALESCE(direction,''), COALESCE(sender,''))
+                        id
+                    FROM messages
+                    WHERE {where}
+                    ORDER BY COALESCE(chat_id,''), ts, COALESCE(text,''), COALESCE(direction,''), COALESCE(sender,''), id
+                ) d
+            """),
+            bind,
         ).scalar()
 
         rows = db.execute(
             text(f"""
                 SELECT id, app, chat_id, sender, counterpart,
                        ts, direction, text, media_hash, is_forwarded
-                FROM messages
-                WHERE {where}
+                FROM (
+                    SELECT DISTINCT ON (COALESCE(chat_id,''), ts, COALESCE(text,''), COALESCE(direction,''), COALESCE(sender,''))
+                        id, app, chat_id, sender, counterpart,
+                        ts, direction, text, media_hash, is_forwarded
+                    FROM messages
+                    WHERE {where}
+                    ORDER BY COALESCE(chat_id,''), ts, COALESCE(text,''), COALESCE(direction,''), COALESCE(sender,''), id
+                ) dedup
                 ORDER BY ts ASC NULLS LAST
                 LIMIT :limit OFFSET :offset
             """),

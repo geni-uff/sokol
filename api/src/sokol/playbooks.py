@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from typing import Any, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from .db import get_session_factory
+from .reports import generate_html_laudo
 
 router = APIRouter(prefix="/playbooks", tags=["playbooks"])
 
@@ -246,7 +248,7 @@ def execute_playbook(playbook_id: str, case_id: str):
             db.commit()
 
             try:
-                output = _execute_step(db, case_id, action, params)
+                output = _execute_step(db, case_id, action, params, user_id=user_id)
                 results[step_id] = {"status": "ok", "output": output}
                 db.execute(
                     text("""
@@ -313,7 +315,7 @@ def _safe_dict(row) -> dict:
     return out
 
 
-def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
+def _execute_step(db, case_id: str, action: str, params: dict, user_id: str | None = None) -> dict:
     """Execute a single playbook step and return its output."""
     if action == "extract_contacts":
         rows = db.execute(
@@ -372,8 +374,16 @@ def _execute_step(db, case_id: str, action: str, params: dict) -> dict:
         return {"peak_hours": [_safe_dict(r) for r in rows]}
 
     elif action == "generate_report":
+        title = str(params.get("title") or "Laudo do playbook")
+        uid_raw = user_id or db.execute(text("SELECT id FROM users LIMIT 1")).scalar()
+        if not uid_raw:
+            return {"message": "Não há usuário para gerar o laudo"}
+        resp = generate_html_laudo(db, UUID(str(case_id)), UUID(str(uid_raw)), title)
         return {
-            "message": "Relatório gerado — dados disponíveis nos resultados do playbook"
+            "report_id": resp.report_id,
+            "status": resp.status,
+            "title": title,
+            "message": "Laudo HTML gerado — abra a aba Relatórios",
         }
 
     elif action == "search_mentions":

@@ -61,7 +61,7 @@ function ChatList({
       </div>
       {visible.map((c) => (
         <Card
-          key={c.chat_id ?? 'null'}
+          key={`${c.app ?? ''}::${c.chat_id ?? 'null'}`}
           className="cursor-pointer hover:border-border-hover"
           onClick={() => onSelect(c)}
         >
@@ -94,9 +94,9 @@ function MessageBubble({ msg, caseId }: { msg: MessageItem; caseId: string }) {
           maxWidth: '75%',
           borderRadius: '0.75rem',
           padding: '0.5rem 0.75rem',
-          backgroundColor: isOut ? '#1d4ed8' : '#1f1f1f',
+          backgroundColor: isOut ? '#2a2a2a' : '#1f1f1f',
           border: '1px solid',
-          borderColor: isOut ? '#2563eb' : '#2a2a2a',
+          borderColor: isOut ? '#3f3f3f' : '#2a2a2a',
         }}
       >
         {msg.sender && !isOut && (
@@ -171,7 +171,7 @@ function MessageView({
       ) : (
         <div className="space-y-0 px-2">
           {msgs.map((m) => (
-            <MessageBubble key={m.id} msg={m} caseId={caseId} />
+            <MessageBubble key={`${m.chat_id ?? ''}::${m.id}`} msg={m} caseId={caseId} />
           ))}
         </div>
       )}

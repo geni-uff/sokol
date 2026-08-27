@@ -34,6 +34,9 @@ RUN uv venv api/.venv && uv pip install --python api/.venv \
 # Copy API source
 COPY api/src/ ./api/src/
 
+# Model registry (Admin switch persists when this path is mounted)
+COPY config/ ./config/
+
 # Copy migrations
 COPY db/migrations/ ./migrations/
 

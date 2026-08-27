@@ -305,8 +305,9 @@ def _generate_html_report(data: dict, title: str) -> str:
         <div class="fact-item">
           <div class="fact-label">{_escape(b['label'])}</div>
           <div class="muted">{_escape(b.get('note') or '')}</div>
-          <div class="muted">Evento: {_escape(_fmt_ts(b.get('event_ts')))} —
-            {_escape(b.get('event_kind') or '')} — {_escape(b.get('event_summary') or '')}</div>
+          {f'''<div class="muted">Evento: {_escape(_fmt_ts(b.get("event_ts")))} —
+            {_escape(b.get("event_kind") or "")} — {_escape(b.get("event_summary") or "")}</div>'''
+           if b.get("event_id") or b.get("event_summary") else ""}
         </div>
         """
         for b in data["bookmarks"]
@@ -503,6 +504,24 @@ def _store_and_respond(
     )
 
 
+def generate_html_laudo(
+    db: Session,
+    case_id: UUID,
+    generated_by: UUID,
+    title: str,
+) -> ReportResponse:
+    """Build and persist an HTML laudo. Used by the reports API and playbooks."""
+    data = _gather_report_data(db, case_id, generated_by)
+    html_content = _generate_html_report(data, title)
+    return _store_and_respond(
+        db,
+        case_id=case_id,
+        user_id=generated_by,
+        title=title,
+        html_content=html_content,
+    )
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────
 
 @router.post("", response_model=ReportResponse, status_code=201)
@@ -516,15 +535,7 @@ def generate_report(
     factory = get_session_factory()
     with factory() as db:
         require_case_member(db, case_id, user.user_id)
-        data = _gather_report_data(db, case_id, user.user_id)
-        html_content = _generate_html_report(data, request.title)
-        return _store_and_respond(
-            db,
-            case_id=case_id,
-            user_id=user.user_id,
-            title=request.title,
-            html_content=html_content,
-        )
+        return generate_html_laudo(db, case_id, user.user_id, request.title)
 
 
 @router.get("", response_model=list[ReportResponse])
@@ -575,10 +586,12 @@ def list_bookmarks(
         require_case_member(db, case_id, user.user_id)
         rows = db.execute(
             text("""
-                SELECT id, case_id, event_id, label, note, color, created_at
-                FROM bookmarks
-                WHERE case_id = :cid
-                ORDER BY created_at DESC
+                SELECT b.id, b.case_id, b.event_id, b.label, b.note, b.color, b.created_at,
+                       e.summary AS event_summary, e.kind AS event_kind
+                FROM bookmarks b
+                LEFT JOIN events e ON e.id = b.event_id
+                WHERE b.case_id = :cid
+                ORDER BY b.created_at DESC
             """),
             {"cid": case_id},
         ).mappings().all()
@@ -590,6 +603,8 @@ def list_bookmarks(
                 "label": r["label"],
                 "note": r["note"],
                 "color": r["color"],
+                "event_summary": r.get("event_summary"),
+                "event_kind": r.get("event_kind"),
                 "created_at": r["created_at"].isoformat() if r["created_at"] else "",
             }
             for r in rows
@@ -631,6 +646,32 @@ def create_bookmark(
         )
         db.commit()
         return {"id": str(bid), "status": "created"}
+
+
+@router.delete("/bookmarks/{bookmark_id}")
+def delete_bookmark(
+    bookmark_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+):
+    factory = get_session_factory()
+    with factory() as db:
+        row = db.execute(
+            text("SELECT case_id FROM bookmarks WHERE id = :id"),
+            {"id": bookmark_id},
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Bookmark não encontrado")
+        require_case_member(db, row[0], user.user_id, roles=["admin", "analista"])
+        db.execute(text("DELETE FROM bookmarks WHERE id = :id"), {"id": bookmark_id})
+        append_audit(
+            db,
+            case_id=row[0],
+            actor_user_id=user.user_id,
+            action="bookmark.deleted",
+            payload={"bookmark_id": str(bookmark_id)},
+        )
+        db.commit()
+        return {"status": "deleted"}
 
 
 @router.get("/{report_id}/download")

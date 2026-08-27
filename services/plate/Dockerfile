@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml ./
-RUN uv venv && uv pip install ultralytics paddlepaddle paddleocr opencv-python-headless fastapi "uvicorn[standard]"
+RUN uv venv && uv pip install ultralytics paddlepaddle paddleocr opencv-python-headless fastapi "uvicorn[standard]" python-multipart
 
 COPY src/ ./src/
 

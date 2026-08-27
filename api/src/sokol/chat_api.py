@@ -40,11 +40,18 @@ def chat_agent_endpoint(
 
         from .chat import chat_agent
 
-        result = chat_agent(
-            db,
-            body.case_id,
-            body.message,
-            body.history,
-        )
+        try:
+            result = chat_agent(
+                db,
+                body.case_id,
+                body.message,
+                body.history,
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail=str(e)) from e
+        except Exception as e:
+            raise HTTPException(
+                status_code=502, detail=f"Falha no Agent: {e}"
+            ) from e
 
         return ChatResponse(**result)

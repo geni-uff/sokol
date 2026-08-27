@@ -3,13 +3,13 @@ FROM python:3.11-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 && \
+    libgl1 libglib2.0-0 libgomp1 && \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml ./
-RUN uv venv && uv pip install paddlepaddle paddleocr fastapi "uvicorn[standard]"
+RUN uv venv && uv pip install paddlepaddle paddleocr fastapi "uvicorn[standard]" python-multipart
 
 COPY src/ ./src/
 

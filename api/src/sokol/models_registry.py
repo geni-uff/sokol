@@ -14,6 +14,7 @@ from sqlalchemy import text
 from .auth import CurrentUser, get_current_user
 from .audit import append_audit
 from .db import get_session_factory
+from .llm import get_active_llm_model, get_llm_context_length
 
 router = APIRouter(prefix="/admin/models", tags=["admin", "models"])
 
@@ -82,6 +83,8 @@ class ModelListResponse(BaseModel):
     llm_models: list[ModelInfo]
     embedding_models: list[ModelInfo]
     rerank_models: list[ModelInfo]
+    effective_llm_model: str | None = None
+    llm_n_ctx: int | None = None
 
 
 class SwitchRequest(BaseModel):
@@ -99,10 +102,20 @@ class SwitchResponse(BaseModel):
 @router.get("", response_model=ModelListResponse)
 def list_models(user: CurrentUser = Depends(get_current_user)):
     reg = _load_registry()
+    try:
+        effective = get_active_llm_model()
+    except Exception:
+        effective = None
+    try:
+        n_ctx = get_llm_context_length()
+    except Exception:
+        n_ctx = None
     return ModelListResponse(
         llm_models=[ModelInfo(**m) for m in reg.get("llm_models", [])],
         embedding_models=[ModelInfo(**m) for m in reg.get("embedding_models", [])],
         rerank_models=[ModelInfo(**m) for m in reg.get("rerank_models", [])],
+        effective_llm_model=effective,
+        llm_n_ctx=n_ctx,
     )
 
 

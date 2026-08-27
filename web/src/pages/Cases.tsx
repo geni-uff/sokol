@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiListCases, apiCreateCase, apiHealth } from '@/lib/api'
+import { apiListCases, apiCreateCase, apiHealth, type Case } from '@/lib/api'
 import {
   FolderOpen,
   Plus,
@@ -32,6 +32,7 @@ export default function Cases() {
   const { data: cases, isLoading, refetch } = useQuery({
     queryKey: ['cases'],
     queryFn: apiListCases,
+    refetchOnMount: 'always',
   })
 
   const { data: health } = useQuery({
@@ -44,8 +45,11 @@ export default function Cases() {
 
   const createMutation = useMutation({
     mutationFn: () => apiCreateCase(newName, newRef || undefined),
-    onSuccess: (newCase: { id: string }) => {
-      queryClient.invalidateQueries({ queryKey: ['cases'] })
+    onSuccess: async (newCase: Case) => {
+      queryClient.setQueryData(['cases'], (old: Case[] | undefined) =>
+        old ? [newCase, ...old.filter((c) => c.id !== newCase.id)] : [newCase],
+      )
+      await queryClient.invalidateQueries({ queryKey: ['cases'] })
       setShowCreate(false)
       setNewName('')
       setNewRef('')
@@ -69,7 +73,7 @@ export default function Cases() {
     >
       <PageHeader
         title="Casos"
-        description={`${cases?.length ?? 0} caso(s) encontrado(s)`}
+        description={`${filtered?.length ?? 0} caso(s) encontrado(s)`}
         actions={
           <>
             <Button
@@ -180,8 +184,10 @@ export default function Cases() {
               <div className="flex items-start justify-between gap-8">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-3">
-                    <h3 className="truncate text-base font-medium text-foreground">{c.name}</h3>
-                    <Badge variant="success">{c.status}</Badge>
+                    <h3 className="text-base font-medium text-foreground" title={c.name}>{c.name}</h3>
+                    <Badge variant="success">
+                      {c.status === 'active' ? 'ativo' : c.status === 'closed' ? 'encerrado' : c.status}
+                    </Badge>
                   </div>
                   {c.legal_ref && (
                     <div className="mt-4 flex items-center gap-2.5 text-sm text-muted">

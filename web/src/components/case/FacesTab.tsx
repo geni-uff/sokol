@@ -1,16 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import {
   apiListSubjects,
-  apiListFaces,
-  apiDetectFaces,
   apiSearchFaces,
   apiLabelFace,
-  type FaceEmbedding,
+  getMediaUrl,
   type FaceSearchResult,
   type FaceSubject,
 } from '@/lib/api'
-import { useState } from 'react'
-import { User, Search, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { useAuth } from '@/hooks/useAuth'
+import { User, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -22,12 +21,14 @@ const INPUT_CLASS =
   'h-11 rounded-lg border border-border bg-surface-elevated px-4 text-sm text-foreground placeholder:text-dim transition-colors duration-150 hover:border-border-hover focus:border-border-hover focus:outline-none focus:ring-1 focus:ring-white/10 disabled:opacity-50'
 
 function SubjectCard({
+  caseId,
   subject,
   isExpanded,
   onToggle,
   onSelect,
   isSelected,
 }: {
+  caseId: string
   subject: FaceSubject
   isExpanded: boolean
   onToggle: () => void
@@ -52,7 +53,7 @@ function SubjectCard({
           >
             <div className="h-16 w-16 overflow-hidden rounded-lg bg-surface">
               <img
-                src={`/api/media/file/${rep.media_hash}?case_id=${caseId}`}
+                src={getMediaUrl(rep.media_hash, caseId)}
                 alt={subject.label || 'Sujeito'}
                 className="h-full w-full object-cover"
                 onError={(e) => {
@@ -103,7 +104,7 @@ function SubjectCard({
                   className="aspect-square overflow-hidden rounded-lg bg-surface"
                 >
                   <img
-                    src={`/api/media/file/${face.media_hash}?case_id=${caseId}`}
+                    src={getMediaUrl(face.media_hash, caseId)}
                     alt={subject.label || 'Rosto'}
                     className="h-full w-full object-cover"
                     loading="lazy"
@@ -122,6 +123,7 @@ function SubjectCard({
 }
 
 export function FacesTab({ caseId }: { caseId: string }) {
+  const { isPlatformAdmin } = useAuth()
   const queryClient = useQueryClient()
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null)
   const [selectedSubject, setSelectedSubject] = useState<FaceSubject | null>(null)
@@ -187,6 +189,7 @@ export function FacesTab({ caseId }: { caseId: string }) {
           {subjects.map((subject) => (
             <SubjectCard
               key={subject.subject_id}
+              caseId={caseId}
               subject={subject}
               isExpanded={expandedSubject === subject.subject_id}
               onToggle={() =>
@@ -196,7 +199,9 @@ export function FacesTab({ caseId }: { caseId: string }) {
               }
               onSelect={() => {
                 setSelectedSubject(subject)
-                searchMutation.mutate(subject.representative_face.id)
+                if (isPlatformAdmin) {
+                  searchMutation.mutate(subject.representative_face.id)
+                }
               }}
               isSelected={selectedSubject?.subject_id === subject.subject_id}
             />
@@ -211,7 +216,7 @@ export function FacesTab({ caseId }: { caseId: string }) {
               <div className="flex items-center gap-3">
                 <div className="h-14 w-14 overflow-hidden rounded-lg bg-surface">
                   <img
-                    src={`/api/media/file/${selectedSubject.representative_face.media_hash}?case_id=${caseId}`}
+                    src={getMediaUrl(selectedSubject.representative_face.media_hash, caseId)}
                     alt="Sujeito selecionado"
                     className="h-full w-full object-cover"
                   />
@@ -221,7 +226,9 @@ export function FacesTab({ caseId }: { caseId: string }) {
                     {selectedSubject.label || 'Sujeito selecionado'}
                   </p>
                   <p className="text-xs text-dim">
-                    Buscando correspondências em outros casos...
+                    {isPlatformAdmin
+                      ? 'Buscando correspondências em outros casos...'
+                      : 'Rosto selecionado neste caso'}
                   </p>
                 </div>
               </div>
@@ -270,12 +277,12 @@ export function FacesTab({ caseId }: { caseId: string }) {
               </Button>
             </div>
 
-            {searching ? (
+            {isPlatformAdmin && searching ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-4 w-4 animate-spin text-muted" />
                 <span className="ml-2 text-sm text-muted">Buscando correspondências...</span>
               </div>
-            ) : searchResults.length > 0 ? (
+            ) : isPlatformAdmin && searchResults.length > 0 ? (
               <div>
                 <p className="mb-2 text-xs font-medium text-muted">
                   {searchResults.length} correspondência(s) em outros casos
@@ -288,7 +295,7 @@ export function FacesTab({ caseId }: { caseId: string }) {
                     >
                       <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-surface">
                         <img
-                          src={`/api/media/file/${result.media_hash}?case_id=${caseId}`}
+                          src={getMediaUrl(result.media_hash, result.case_id || caseId)}
                           alt="Encontrado"
                           className="h-full w-full object-cover"
                         />
@@ -305,7 +312,7 @@ export function FacesTab({ caseId }: { caseId: string }) {
                   ))}
                 </div>
               </div>
-            ) : selectedSubject && !searching ? (
+            ) : isPlatformAdmin && selectedSubject && !searching ? (
               <p className="py-4 text-center text-xs text-dim">
                 Nenhuma correspondência encontrada em outros casos.
               </p>

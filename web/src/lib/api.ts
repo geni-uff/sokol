@@ -3,6 +3,7 @@ const API_BASE = '/api'
 export interface LoginResponse {
   token: string
   user_id: string
+  is_platform_admin?: boolean
 }
 
 export interface Case {
@@ -81,6 +82,21 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+async function throwApiError(res: Response, fallback: string): Promise<never> {
+  const err = (await res.json().catch(() => ({ detail: fallback }))) as { detail?: unknown }
+  const detail = err.detail
+  let msg = fallback
+  if (typeof detail === 'string') msg = detail
+  else if (Array.isArray(detail)) {
+    msg = detail
+      .map((d) =>
+        typeof d === 'object' && d && 'msg' in d ? String((d as { msg: string }).msg) : String(d),
+      )
+      .join('; ')
+  }
+  throw new Error(msg || fallback)
+}
+
 export async function apiLogin(username: string, password: string): Promise<LoginResponse> {
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
@@ -132,7 +148,7 @@ export async function apiSearch(
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ case_id: caseId, query, mode, k }),
   })
-  if (!res.ok) throw new Error('Search failed')
+  if (!res.ok) await throwApiError(res, 'Busca falhou')
   return res.json()
 }
 
@@ -155,6 +171,12 @@ export async function apiTimeline(
   return res.json()
 }
 
+export async function apiEventApps(caseId: string): Promise<string[]> {
+  const res = await fetch(`${API_BASE}/events/apps?case_id=${caseId}`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+
 export async function apiCaseStats(caseId: string): Promise<CaseStats> {
   const res = await fetch(`${API_BASE}/events/stats?case_id=${caseId}`, { headers: authHeaders() })
   if (!res.ok) return { events: 0, messages: 0, chunks: 0, entities: 0, media: 0 }
@@ -170,7 +192,7 @@ export async function apiChat(
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ case_id: caseId, message }),
   })
-  if (!res.ok) throw new Error('Chat failed')
+  if (!res.ok) await throwApiError(res, 'Falha no Agent')
   return res.json()
 }
 
@@ -201,6 +223,9 @@ export interface Bookmark {
   label: string
   note?: string
   color: string
+  event_id?: string | null
+  event_summary?: string | null
+  event_kind?: string | null
   created_at: string
 }
 
@@ -216,7 +241,16 @@ export async function apiCreateBookmark(caseId: string, label: string, eventId?:
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ case_id: caseId, label, event_id: eventId }),
   })
-  if (!res.ok) throw new Error('Create bookmark failed')
+  if (!res.ok) await throwApiError(res, 'Falha ao criar bookmark')
+  return res.json()
+}
+
+export async function apiDeleteBookmark(bookmarkId: string) {
+  const res = await fetch(`${API_BASE}/reports/bookmarks/${bookmarkId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao remover bookmark')
   return res.json()
 }
 
@@ -252,8 +286,26 @@ export async function apiCreateWatchlist(caseId: string, name: string, watchType
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ case_id: caseId, name, watch_type: watchType, patterns }),
   })
-  if (!res.ok) throw new Error('Create watchlist failed')
+  if (!res.ok) await throwApiError(res, 'Falha ao criar watchlist')
   return res.json()
+}
+
+export async function apiDeleteWatchlist(watchlistId: string) {
+  const res = await fetch(`${API_BASE}/watchlists/${watchlistId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao remover watchlist')
+  return res.json()
+}
+
+export async function apiToggleWatchlist(watchlistId: string) {
+  const res = await fetch(`${API_BASE}/watchlists/${watchlistId}/toggle`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao alterar watchlist')
+  return res.json() as Promise<{ is_active: boolean }>
 }
 
 // ── Pendências ────────────────────────────────────────────────────────────
@@ -334,6 +386,7 @@ interface MediaItem {
 export interface MediaListResponse {
   items: MediaItem[]
   total: number
+  cache_files?: number
 }
 
 export async function apiListMedia(
@@ -345,7 +398,7 @@ export async function apiListMedia(
   if (opts?.offset) params.set('offset', String(opts.offset))
   if (opts?.mimeType) params.set('mime_type', opts.mimeType)
   const res = await fetch(`${API_BASE}/media/${caseId}?${params}`, { headers: authHeaders() })
-  if (!res.ok) return { items: [], total: 0 }
+  if (!res.ok) return { items: [], total: 0, cache_files: 0 }
   return res.json()
 }
 
@@ -522,12 +575,37 @@ export interface PipelineJob {
   message: string
 }
 
-export async function apiLaunchPipeline(caseId: string): Promise<{ jobs_launched: number; job_ids: Record<string, string> }> {
-  const res = await fetch(`${API_BASE}/detect/pipeline/${caseId}`, {
+export async function apiLaunchPipeline(
+  caseId: string,
+  opts?: { mode?: 'sample' | 'all'; sample_images?: number; sample_audios?: number },
+): Promise<{
+  jobs_launched: number
+  job_ids: Record<string, string>
+  skipped?: Record<string, string>
+  warnings?: string[]
+  mode?: string
+  image_count?: number
+  audio_count?: number
+  missing_files?: number
+}> {
+  const params = new URLSearchParams()
+  params.set('mode', opts?.mode ?? 'sample')
+  if (opts?.sample_images) params.set('sample_images', String(opts.sample_images))
+  if (opts?.sample_audios) params.set('sample_audios', String(opts.sample_audios))
+  const res = await fetch(`${API_BASE}/detect/pipeline/${caseId}?${params}`, {
     method: 'POST',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('Launch pipeline failed')
+  if (!res.ok) await throwApiError(res, 'Falha ao iniciar pipeline')
+  return res.json()
+}
+
+export async function apiBackfillChunks(caseId: string): Promise<{ chunks_created: number }> {
+  const res = await fetch(`${API_BASE}/detect/chunk/${caseId}`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao indexar texto')
   return res.json()
 }
 
@@ -550,7 +628,7 @@ export interface PlateDetection {
 
 export async function apiListPlates(caseId: string): Promise<PlateDetection[]> {
   const res = await fetch(`${API_BASE}/plates/${caseId}`, { headers: authHeaders() })
-  if (!res.ok) return []
+  if (!res.ok) throw new Error(`Placas falhou (${res.status})`)
   return res.json()
 }
 
@@ -571,13 +649,24 @@ export interface Transcription {
   text: string
   language: string | null
   created_at: string
+  mime_type?: string | null
+  size_bytes?: number | null
+  file_name?: string | null
+  source_member?: string | null
+  original_path?: string | null
+  document_title?: string | null
+  app?: string | null
+  sender?: string | null
+  counterpart?: string | null
+  chat_id?: string | null
+  whatsapp_id?: string | null
 }
 
 export async function apiListTranscriptions(caseId: string, search?: string): Promise<Transcription[]> {
   const params = new URLSearchParams()
   if (search) params.set('search', search)
   const res = await fetch(`${API_BASE}/transcriptions/${caseId}?${params}`, { headers: authHeaders() })
-  if (!res.ok) return []
+  if (!res.ok) throw new Error(`Transcrições falhou (${res.status})`)
   return res.json()
 }
 
@@ -686,6 +775,8 @@ export interface ResolutionSuggestion {
   kind_b: string
   display_a: string | null
   display_b: string | null
+  value_a?: string | null
+  value_b?: string | null
   reason: string
   confidence: number
   indicator_note: string
@@ -738,6 +829,35 @@ export async function apiRejectResolution(
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail ?? `Error ${res.status}`)
   }
+  return res.json()
+}
+
+export interface AgendaContact {
+  id: string
+  name: string
+  phones: string[]
+  emails: string[]
+}
+
+export async function apiListAgenda(caseId: string): Promise<{
+  case_id: string
+  contacts: AgendaContact[]
+  total: number
+}> {
+  const res = await fetch(`${API_BASE}/entities/agenda/${caseId}`, { headers: authHeaders() })
+  if (!res.ok) return { case_id: caseId, contacts: [], total: 0 }
+  return res.json()
+}
+
+export async function apiBackfillContacts(caseId: string): Promise<{
+  persons_created: number
+  links_created: number
+}> {
+  const res = await fetch(`${API_BASE}/entities/backfill-contacts/${caseId}`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao materializar contatos')
   return res.json()
 }
 
@@ -1056,4 +1176,175 @@ export async function apiDownloadCaseExport(
   link.click()
   document.body.removeChild(link)
   URL.revokeObjectURL(link.href)
+}
+
+// ── Admin / plataforma ───────────────────────────────────────────────────
+export interface AdminModelInfo {
+  id: string
+  provider: string
+  model: string
+  enabled?: boolean
+  active?: boolean
+}
+
+export interface AdminModelsResponse {
+  llm_models: AdminModelInfo[]
+  embedding_models: AdminModelInfo[]
+  rerank_models: AdminModelInfo[]
+  effective_llm_model?: string
+  llm_n_ctx?: number
+}
+
+export async function apiAdminModels(): Promise<AdminModelsResponse> {
+  const res = await fetch(`${API_BASE}/admin/models`, { headers: authHeaders() })
+  if (!res.ok) await throwApiError(res, 'Falha ao listar modelos')
+  return res.json()
+}
+
+export async function apiSwitchLlm(modelId: string) {
+  const res = await fetch(`${API_BASE}/admin/models/llm/switch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ model_id: modelId }),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao trocar LLM')
+  return res.json()
+}
+
+export async function apiSwitchEmbed(modelId: string) {
+  const res = await fetch(`${API_BASE}/admin/models/embedding/switch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ model_id: modelId }),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao trocar embedding')
+  return res.json()
+}
+
+export async function apiSwitchReranker(modelId: string) {
+  const res = await fetch(`${API_BASE}/admin/models/reranker/switch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ model_id: modelId }),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao trocar reranker')
+  return res.json()
+}
+
+export async function apiListBackups(): Promise<{ backups: Array<Record<string, unknown>> }> {
+  const res = await fetch(`${API_BASE}/backup/list`, { headers: authHeaders() })
+  if (!res.ok) await throwApiError(res, 'Falha ao listar backups')
+  return res.json()
+}
+
+export async function apiCreateBackup() {
+  const res = await fetch(`${API_BASE}/backup`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao criar backup')
+  return res.json()
+}
+
+export async function apiBackupSchedule(): Promise<Record<string, unknown>> {
+  const res = await fetch(`${API_BASE}/backup/schedule`, { headers: authHeaders() })
+  if (!res.ok) await throwApiError(res, 'Falha ao ler agendamento')
+  return res.json()
+}
+
+export async function apiSetBackupSchedule(body: {
+  frequency: string
+  retention_days: number
+  enabled: boolean
+}) {
+  const res = await fetch(`${API_BASE}/backup/schedule`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao agendar backup')
+  return res.json()
+}
+
+export async function apiRestoreBackup(backupFile: string) {
+  const res = await fetch(`${API_BASE}/backup/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ backup_file: backupFile, confirm: true }),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha no restore')
+  return res.json()
+}
+
+export async function apiAuditVerify(): Promise<{ valid: boolean; errors: unknown[] }> {
+  const res = await fetch(`${API_BASE}/admin/audit/verify`, { headers: authHeaders() })
+  if (!res.ok) await throwApiError(res, 'Falha na verificação de auditoria')
+  return res.json()
+}
+
+export interface InboxFile {
+  path: string
+  name: string
+  size: number
+  is_dir: boolean
+  ready?: boolean
+  not_ready_reason?: string | null
+}
+
+export interface IngestJob {
+  job_id: string
+  document_id: string | null
+  status: string
+  inbox_ref: string | null
+  error: string | null
+  created_at: string
+  updated_at: string | null
+  parse_coverage?: {
+    model_type_counts?: Record<string, number>
+    ignored_model_types?: Record<string, number>
+    fs_walk?: Record<string, number>
+  } | null
+}
+
+export interface BatchIngestResponse {
+  results: Array<{ job_id: string; document_id: string; status: string }>
+  total: number
+  queued: number
+}
+
+export async function apiListInbox(prefix?: string, kind: 'ufdr' | 'pdf' | 'all' = 'ufdr'): Promise<InboxFile[]> {
+  const params = new URLSearchParams()
+  if (prefix) params.set('prefix', prefix)
+  params.set('kind', kind)
+  const res = await fetch(`${API_BASE}/ingest/inbox?${params.toString()}`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao listar o inbox')
+  return res.json()
+}
+
+export async function apiListIngestJobs(caseId: string): Promise<IngestJob[]> {
+  const res = await fetch(`${API_BASE}/ingest/jobs?case_id=${caseId}&limit=50`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao listar jobs de ingestão')
+  return res.json()
+}
+
+export async function apiBatchIngest(
+  caseId: string,
+  inboxRefs: string[],
+  sourceType = 'ufdr',
+): Promise<BatchIngestResponse> {
+  const res = await fetch(`${API_BASE}/ingest/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({
+      case_id: caseId,
+      source_type: sourceType,
+      inbox_refs: inboxRefs,
+    }),
+  })
+  if (!res.ok) await throwApiError(res, 'Falha ao enfileirar ingestão')
+  return res.json()
 }

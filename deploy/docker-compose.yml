@@ -37,12 +37,11 @@ services:
     env_file:
       - ../.env
     volumes:
-      - ../synth/output:/data/ufdr-extract/synth:ro
-      - ../:/data/project:ro
+      - ../config:/app/config
       - ../data/media-cache:/data/media-cache
       - ../data/staging:/data/staging
       - ../data/backups:/data/backups
-      - ../UFDRsTest:/ingest/inbox:ro
+      - ${SOKOL_INGEST_DIR:-../UFDRsTest}:${SOKOL_CONTAINER_INGEST_DIR:-/ingest/inbox}:ro
     environment:
       SOKOL_API_HOST: "0.0.0.0"
       SOKOL_API_PORT: "8000"
@@ -130,6 +129,11 @@ services:
       dockerfile: Dockerfile
     container_name: sokol-ocr
     restart: unless-stopped
+    environment:
+      FLAGS_use_mkldnn: "0"
+      FLAGS_onednn: "0"
+      FLAGS_enable_pir_api: "0"
+      PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT: "0"
     ports:
       - "${SOKOL_OCR_PORT:-8008}:8008"
     healthcheck:
@@ -172,6 +176,12 @@ services:
       dockerfile: Dockerfile
     container_name: sokol-plate
     restart: unless-stopped
+    environment:
+      # Paddle 3.3 + oneDNN PIR crash: ConvertPirAttribute2RuntimeAttribute
+      FLAGS_use_mkldnn: "0"
+      FLAGS_onednn: "0"
+      FLAGS_enable_pir_api: "0"
+      PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT: "0"
     ports:
       - "${SOKOL_PLATE_PORT:-8010}:8010"
     volumes:
@@ -261,8 +271,8 @@ services:
       - ../data/media-cache:/data/media-cache
       - ../data/staging:/data/staging
       - ../data/backups:/data/backups
-      - ../UFDRsTest:/ingest/inbox:ro
-    command: ["python", "ingest_worker.py", "1", "1"]
+      - ${SOKOL_INGEST_DIR:-../UFDRsTest}:${SOKOL_CONTAINER_INGEST_DIR:-/ingest/inbox}:ro
+    command: ["python", "-m", "worker.ingest_worker", "1", "1"]
 
   # ---------------------------------------------------------------------------
   # Frontend — React SPA
@@ -273,13 +283,15 @@ services:
       dockerfile: Dockerfile
     container_name: sokol-web
     restart: unless-stopped
-    ports:
-      - "${SOKOL_WEB_PORT:-3000}:80"
+    # Mesmo modo da API: no Linux, um contentor em bridge não alcança
+    # um processo host-network (iptables/nftables dropa o hairpin).
+    network_mode: host
+    environment:
+      SOKOL_WEB_PORT: ${SOKOL_WEB_PORT:-3000}
+      SOKOL_API_PORT: ${SOKOL_API_PORT:-8000}
     depends_on:
       sokol-api:
         condition: service_healthy
-    networks:
-      - sokol-net
 
 volumes:
   sokol-pgdata:

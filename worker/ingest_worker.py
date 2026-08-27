@@ -7,6 +7,7 @@ import os
 import shutil
 import signal
 import time
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event
@@ -14,6 +15,11 @@ from uuid import UUID, uuid4
 
 import redis
 from sqlalchemy import create_engine, text
+
+# Must be the package (`worker.loop`), not a bare `from loop import`. A script
+# launch (sys.path[0] = /app) would otherwise load loop as a top-level module
+# and ufdr_parser's `from .parsers` raises ImportError, leaving jobs pending.
+from worker.loop import claim_next_job, process_job
 
 # ── Config ────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -68,6 +74,7 @@ class IngestWorker:
 
                 if result is None:
                     self._maybe_run_scheduled_backup()
+                    self._drain_postgres_job()
                     continue
 
                 _key, job_json = result
@@ -114,10 +121,14 @@ class IngestWorker:
         try:
             self._update_progress(job_id, "running", 0.0, f"Starting ingest of {inbox_ref}")
 
-            # Validate file
-            source = INBOX_DIR / inbox_ref
-            if not source.exists() or not source.is_file():
+            inbox = INBOX_DIR.resolve()
+            source = (inbox / str(inbox_ref)).resolve()
+            if not source.is_relative_to(inbox) or not source.is_file():
                 raise FileNotFoundError(f"File not found: {inbox_ref}")
+            if source.suffix.lower() == ".ufdr" and not zipfile.is_zipfile(source):
+                raise ValueError(
+                    "UFDR incompleto (ZIP inválido). Espere a cópia para o inbox terminar."
+                )
 
             # SHA256 hash
             file_hash = self._sha256_file(source)
@@ -217,6 +228,12 @@ class IngestWorker:
         except Exception as e:
             logger.error(f"[{job_id}] ❌ Error: {e}", exc_info=True)
             self._update_progress(job_id, "failed", 0.0, f"Error: {str(e)}")
+
+    def _drain_postgres_job(self) -> None:
+        """Pick up API ingest jobs (staging + jobs table), not only the Redis queue."""
+        job = claim_next_job(self.db_engine)
+        if job:
+            process_job(self.db_engine, job)
 
     def _update_progress(self, job_id: str, status: str, progress: float, message: str):
         """Update job progress in Redis."""

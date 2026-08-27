@@ -8,6 +8,13 @@ UFDRsTest/
 .env.*
 !.env.example
 
+# ── Instruções locais de agentes (ficam na máquina, não no remoto) ──────────
+AGENTS.md
+CLAUDE.md
+
+# ── Artefatos gerados ───────────────────────────────────────────────────────
+graphify-out/
+
 # ── Python ──────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
@@ -31,7 +38,7 @@ web/node_modules/
 web/dist/
 web/.vite/
 package-lock.json
-web/package-lock.json
+!web/package-lock.json
 
 # ── Modelos e caches ───────────────────────────────────────────────────────
 models/

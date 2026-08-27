@@ -13,6 +13,10 @@ from sqlalchemy.orm import Session
 
 from .tools import TOOLS, get_tool_schemas, execute_tool, ToolResult
 from .audit import append_audit
+from .llm import get_llm_context_length
+
+TOOL_TEXT_MAX = 400
+TOOL_ITEMS_MAX = 50
 
 SYSTEM_PROMPT = """Você é um assistente investigativo do SOKOL, uma plataforma forense.
 Você TEM que usar ferramentas para buscar dados antes de responder.
@@ -23,13 +27,14 @@ Mesmo que o usuário digite APENAS um nome, URL, ou palavra-chave, VOCÊ DEVE us
 FERRAMENTAS DISPONÍVEIS:
 - semantic_search_events: Busca semântica nos eventos por similaridade. USE ESTA como PRIMEIRA OPÇÃO para nomes, sites, locais, ou qualquer termo específico. Retorna os top-K mais relevantes.
 - query_timeline: Consulta linha do tempo com filtros SQL. Use quando o usuário pedir "tudo de [tipo]" ou um intervalo de datas.
-- semantic_search: Busca semântica em chunks de mensagens (conversas, textos).
-- query_messages: Consulta mensagens com filtros específicos.
+- semantic_search: Busca semântica em chunks de mensagens (conversas, textos). NUNCA use para contagens.
+- query_messages: Consulta mensagens com filtros SQL. USE para "quantas mensagens", contagens e filtros.
 - query_calls: Consulta chamadas telefônicas.
 - query_media: Consulta arquivos de mídia.
 - query_geo: Consulta localizações GPS.
 
 EXEMPLOS:
+- "quantas mensagens" → query_messages()
 - "TudoGostoso" → semantic_search_events(query="TudoGostoso")
 - "WhatsApp" → semantic_search_events(query="WhatsApp") + query_timeline(kind="message")
 - "localização" → semantic_search_events(query="localização") + query_geo()
@@ -56,11 +61,9 @@ FORMATAÇÃO DE FONTES:
 
 
 def _get_llm_config() -> tuple[str, str]:
-    base_url = os.getenv(
-        "SOKOL_LMSTUDIO_BASE_URL", "http://host.docker.internal:1234/v1"
-    )
-    model = os.getenv("SOKOL_DEFAULT_LLM_MODEL", "change_me")
-    return base_url, model
+    from .llm import _get_base_url, get_active_llm_model
+
+    return _get_base_url(), get_active_llm_model()
 
 
 def _llm_chat(
@@ -80,13 +83,51 @@ def _llm_chat(
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
 
-    resp = httpx.post(
-        f"{base_url}/chat/completions",
-        json=payload,
-        timeout=120.0,
-    )
-    resp.raise_for_status()
+    try:
+        resp = httpx.post(
+            f"{base_url}/chat/completions",
+            json=payload,
+            timeout=120.0,
+        )
+    except httpx.ConnectError as e:
+        raise RuntimeError(f"LM Studio inacessível em {base_url}: {e}") from e
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"LLM recusou o modelo '{model}' ({resp.status_code}): {resp.text[:400]}"
+        )
     return resp.json()
+
+
+def _compact_tool_payload(result: ToolResult) -> dict:
+    """Keep tool messages small enough for local n_ctx."""
+    data = []
+    for item in result.data[:TOOL_ITEMS_MAX]:
+        row = {}
+        for key, value in item.items():
+            if isinstance(value, str) and len(value) > TOOL_TEXT_MAX:
+                row[key] = value[:TOOL_TEXT_MAX] + "…"
+            else:
+                row[key] = value
+        data.append(row)
+    return {
+        "tool_name": result.tool_name,
+        "count": result.count,
+        "truncated": len(result.data) > TOOL_ITEMS_MAX,
+        "data": data,
+        "sources": [
+            {"ref_table": s.get("ref_table"), "ref_id": s.get("ref_id")}
+            for s in result.sources[:TOOL_ITEMS_MAX]
+            if isinstance(s, dict)
+        ],
+        "error": result.error,
+    }
+
+
+def _estimate_tokens(messages: list[dict]) -> int:
+    total = 0
+    for msg in messages:
+        total += len(json.dumps(msg, default=str))
+    return total // 4
 
 
 def _execute_tool_calls(
@@ -107,16 +148,7 @@ def _execute_tool_calls(
             {
                 "tool_call_id": tc.get("id", ""),
                 "role": "tool",
-                "content": json.dumps(
-                    {
-                        "tool_name": result.tool_name,
-                        "count": result.count,
-                        "data": result.data,
-                        "sources": result.sources,
-                        "error": result.error,
-                    },
-                    default=str,
-                ),
+                "content": json.dumps(_compact_tool_payload(result), default=str),
             }
         )
 
@@ -162,6 +194,16 @@ def chat_agent(
     tool_results_collected = []
 
     for round_num in range(max_tool_rounds):
+        n_ctx = get_llm_context_length()
+        estimated = _estimate_tokens(messages) + 2048
+        if estimated > n_ctx:
+            response_text = (
+                "O contexto desta pergunta excedeu o limite do modelo "
+                f"({estimated} tokens estimados > n_ctx {n_ctx}). "
+                "Peça um recorte mais estreito (datas, app, ou um contato)."
+            )
+            break
+
         # Call LLM
         llm_response = _llm_chat(messages, tools=tool_schemas)
         choice = llm_response["choices"][0]

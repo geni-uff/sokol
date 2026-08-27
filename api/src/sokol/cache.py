@@ -37,6 +37,14 @@ def cache_set(key: str, value: Any, ttl_seconds: int = 60) -> None:
         logger.warning("cache_set failed (key=%s): %s", key, exc)
 
 
+def cache_delete(key: str) -> None:
+    """Delete one exact cache key. Silently skips on Redis failure."""
+    try:
+        _client().delete(key)
+    except Exception as exc:
+        logger.warning("cache_delete failed (key=%s): %s", key, exc)
+
+
 def cache_invalidate(prefix: str) -> None:
     """Delete all keys matching prefix:* via SCAN. Silently skips on failure."""
     try:
