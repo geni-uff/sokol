@@ -39,12 +39,25 @@ if not exist ".env" (
     echo Aviso: criei .env a partir de deploy\env.example. Defina POSTGRES_PASSWORD.
 )
 
-rem Porta da UI no host (default 3000). Se ocupada, mude SOKOL_WEB_PORT no .env.
+rem Porta da UI no host (default 3000). Le SOKOL_WEB_PORT do .env (sem espacos/CR/aspas).
 set "WEB_PORT=3000"
-for /f "usebackq tokens=1,* delims==" %%a in (`.env`) do (
-    if /I "%%a"=="SOKOL_WEB_PORT" set "WEB_PORT=%%b"
+if exist ".env" (
+    for /f "usebackq tokens=1,* delims== eol=#" %%a in (".env") do (
+        set "_k=%%a"
+        set "_v=%%b"
+        if defined _k if defined _v (
+            rem remove espacos a volta da chave
+            for /f "tokens=* delims= " %%k in ("!_k!") do set "_k=%%k"
+            if /I "!_k!"=="SOKOL_WEB_PORT" (
+                for /f "tokens=* delims= " %%v in ("!_v!") do set "_v=%%v"
+                set "_v=!_v:"=!"
+                set "_v=!_v: =!"
+                if not "!_v!"=="" set "WEB_PORT=!_v!"
+            )
+        )
+    )
 )
-set "WEB_PORT=!WEB_PORT: =!"
+echo Porta da UI ^(SOKOL_WEB_PORT^): !WEB_PORT!
 
 if not exist "data\media-cache" mkdir "data\media-cache"
 if not exist "data\staging" mkdir "data\staging"
