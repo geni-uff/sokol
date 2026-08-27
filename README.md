@@ -24,7 +24,8 @@ estruturados, pesquisáveis e auditáveis, sempre escopados por **caso** (`case_
 | **Ingestão** | UFDR (XML Cellebrite + walker FileSystem/iCloud), mensagens, chamadas, contatos, GPS, web, e-mail, mídia |
 | **Busca híbrida** | Lexical (`tsvector`) + semântica (`pgvector`) com reranking |
 | **Agent** | Pergunta-e-resposta com ferramentas SQL; respostas com **Sources** |
-| **Pipeline de detecção** | YOLO, rostos, placas, OCR, transcrição — em amostra ou em tudo |
+| **Pipeline de detecção** | YOLO, rostos, placas, OCR, transcrição — em amostra ou em tudo (aba Mídia) |
+| **Índice textual / vetorial** | Busca: Indexar texto (`tsv`); Indexar vetores (`pgvector`) para o Agent |
 | **Timeline e mapa** | Eventos no fuso do caso; geo via PostGIS |
 | **Playbooks e laudos** | Fluxos determinísticos e relatórios HTML com cadeia de custódia |
 | **Watchlists e pendências** | Seletores globais; fila humana Indicator → Fact |
@@ -83,7 +84,7 @@ Há **três papéis**. Só o **LLM** se troca no dia-a-dia. Embedding e reranker
 | Papel | Onde corre | Para que serve | Trocar em runtime? |
 |-------|------------|----------------|--------------------|
 | **LLM** | LM Studio no **host** (`:1234`) | Agent (aba Chat), síntese de playbooks | Sim — Admin `/admin` |
-| **Embedding** | `sokol-embed` (`:8001`) | Busca semântica / vetores | **Não** (ADR-0006) |
+| **Embedding** | `sokol-embed` (`:8001`); fallback se o LM Studio não carregar o GGUF | Busca semântica / vetores (`Indexar vetores`) | **Não** (ADR-0006) |
 | **Reranker** | serviço de rerank | Ordenar hits da busca híbrida | Sim, com cuidado |
 
 A fonte de verdade do LLM ativo é `config/models.yaml` (montado no container da API). A UI **Administração → Modelos** mostra *Chat usa \<id\> · n_ctx N* — esse id é o que o Agent envia ao LM Studio. O `.env` (`SOKOL_DEFAULT_LLM_MODEL`) só entra se o registry não tiver um modelo `active`.
@@ -99,7 +100,9 @@ Mude quando o modelo atual **falha no trabalho investigativo**, não por hábito
 
 **Não mude** a meio de um laudo sem anotar no caso: o tom e os erros do Agent mudam. Detecções ML (YOLO, faces, ASR) **não** usam o LLM — trocar o chat não refaz placas nem transcrições.
 
-**Não mude o embedding** pela UI (está bloqueado). Vectores já gravados ficariam incompatíveis; isso exige reindexação offline e edição de `models.yaml` de propósito. Reranker pode-se activar no Admin se o endpoint responder; o impacto é só a ordem da busca, não os embeddings.
+**Não mude o embedding** pela UI (está bloqueado). Vetores já gravados ficariam incompatíveis; isso exige reindexação offline e edição de `models.yaml` de propósito. Reranker pode-se ativar no Admin se o endpoint responder; o impacto é só a ordem da busca, não os embeddings.
+
+O `.env` pode apontar `SOKOL_EMBED_BASE_URL` para o LM Studio (`:1234`). Na prática o GGUF de embedding **muitas vezes não carrega** enquanto o LLM ocupa a VRAM — o worker tenta o LM Studio e cai em `http://localhost:8001/v1` (`sokol-embed`). Desligue o fallback com `SOKOL_EMBED_FALLBACK_URL=` vazio.
 
 ### Como mudar o LLM (checklist)
 
@@ -169,7 +172,9 @@ Mesmo com 32k, o Agent **não** mete 40 mil localizações no prompt. As tools t
 3. Copiar o UFDR para a pasta do host em `SOKOL_INGEST_DIR` (default `UFDRsTest/`, relativa a `deploy/`). Subpastas ok. **Não precisa parar o Docker** para copiar arquivos para a pasta já montada. Só precisa de `compose up -d` se **mudar** o valor de `SOKOL_INGEST_DIR`.
 4. Caso → aba **Operação** → marcar arquivo ou **Ingerir pasta**. Um UFDR ainda sendo copiado (ZIP incompleto) aparece como *Copiando* e a API recusa ingestão até o arquivo fechar. O worker drena o job sozinho (`pending` → `running` → `done`).
 5. Investigar: Timeline, Dados, Mídia, Conversas, Busca, Agent.
-6. **Mídia → Amostra** para detecções ML (Indicadores). **Tudo** só quando a amostra bastar e houver tempo/GPU.
+6. **Enriquecer** (não vem de graça na ingestão — ver [Enriquecimento](#enriquecimento-pipeline-texto-e-vetores)):
+   - **Mídia → Amostra** (detecções ML). **Tudo** só quando a amostra bastar e houver tempo/GPU.
+   - **Busca → Indexar texto** (índice lexical). **Indexar vetores** (Agent / busca semântica).
 7. Pendências (Indicator → Fact), Bookmarks, Relatório.
 
 Pela API:
@@ -186,6 +191,8 @@ curl -X POST http://localhost:8000/ingest/batch \
 
 Progresso: `GET /ingest/jobs?case_id=` e a lista na aba Operação. Mídia grande **não** é toda extraída na ingestão — `GET /media/file/{hash}?case_id=` extrai on-demand para `data/media-cache/`.
 
+A ingestão **tenta** gerar embeddings; se o endpoint falhar, o erro é engolido e o caso fica usável **sem vetores**. Por isso o passo 6 existe.
+
 ### Dois tipos de UFDR
 
 | Extract Cellebrite | O que o Sokol faz |
@@ -195,23 +202,62 @@ Progresso: `GET /ingest/jobs?case_id=` e a lista na aba Operação. Mídia grand
 
 Se o XML não tiver Chat/Email, 4 bookmarks não são “ingest falhou”: olhe o diagnóstico FileSystem. Domínios ausentes na imagem (sem `.eml`, sem GPS) ficam em 0 hits — o job continua `done`.
 
-### Pipeline ML
+### Enriquecimento: pipeline, texto e vetores
+
+Três jobs distintos. Não se substituem.
+
+| O quê | Onde na UI | Endpoint | O que grava | Quem executa |
+|-------|------------|----------|-------------|--------------|
+| **Pipeline de detecção** | Caso → **Mídia** (não Operação) | `POST /detect/pipeline/{case_id}?mode=sample\|all` | Indicadores: visão, rostos, placas, OCR, ASR | Threads na **API** |
+| **Indexar texto** | Caso → **Busca** (canto superior direito) | `POST /detect/chunk/{case_id}` | `chunks` + `tsv` (lexical). `embedding` fica `NULL` | API (síncrono) |
+| **Indexar vetores** | Caso → **Busca** (ao lado de Indexar texto); também no **Chat** vazio | `POST /detect/embed/{case_id}` | `chunks.embedding` e `events.embedding` (1024-d) | **Worker** (`kind=embed`) |
+
+Rostos, Placas, Voz e OCR vazios depois da ingestão é o esperado até rodar o pipeline em **Mídia**.
+
+#### Pipeline de detecção (Mídia)
+
+- **Amostra** (padrão): 80 imagens e 40 áudios — triagem.
+- **Tudo**: percorre a mídia extraível do caso; lento e pesado de GPU.
+- Resultado = **Indicator** (ADR-0004), não Fact. O Agent não afirma isso como fato e não entra no laudo como asserção. Vira Fact só via **Pendência** humana.
+- Jobs listados na própria aba Mídia são **deste caso**; ignore “Done” de outro UFDR.
 
 ```bash
-# Amostra — triagem
 curl -X POST "http://localhost:8000/detect/pipeline/{case_id}?mode=sample" \
   -H "Authorization: Bearer $TOKEN"
-
-# Caso inteiro — lento
+# Caso inteiro:
 curl -X POST "http://localhost:8000/detect/pipeline/{case_id}?mode=all" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Resultados são **Indicators** até Pendência humana. O Agent não os afirma como Fact nem entram no laudo como asserção. Os jobs da aba Mídia são **deste caso**; não devem aparecer “Done” de outro UFDR.
+#### Indexar texto (Busca)
+
+Gera/atualiza o índice **lexical** (`chunks.tsv`). Necessário para a busca por palavra na aba Busca. **Não** preenche vetores — o Agent ainda não faz busca semântica só com isto.
+
+#### Indexar vetores (Busca / Chat)
+
+Habilita `semantic_search` / `semantic_search_events` no Agent. O botão:
+
+- Na **Busca**: sempre visível no cabeçalho, ao lado de Indexar texto.
+- No **Chat**: só **antes da primeira pergunta** (some quando já há histórico).
+- Enquanto o job corre, o rótulo vira `Indexando chunks N/M` (depois `events`).
+- Quando chunks e events estão cobertos: **Vetores prontos** (desativado).
+
+O worker preenche só linhas com `embedding IS NULL`. Se o LM Studio não carregar o GGUF de embedding (VRAM ocupada pelo LLM), cai automaticamente no `sokol-embed` (`:8001`, mesmo modelo 1024-d, ADR-0006). No CPU isso é lento — deixe o job no worker; não relance a cada minuto.
+
+```bash
+curl -X POST "http://localhost:8000/detect/embed/{case_id}" \
+  -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8000/detect/embed/{case_id}" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+`GET` devolve `chunks_embedded` / `chunks_total` e `events_embedded` / `events_total`.
 
 ### Agent (aba Chat)
 
-`POST /chat/agent`. Contagens e fatos vêm de **tools SQL**, nunca da busca semântica. Cada afirmação deve ter Source (Message, Media SHA-256, ou Document+página). Perguntas largas demais (“mostra toda a timeline”) devem ser recortadas por data, app ou contato.
+`POST /chat/agent` (sem histórico na UI). Contagens e fatos vêm de **tools SQL**, nunca da busca semântica (ADR-0005). Teto das tools: 50 linhas, sem `COUNT(*)`. Cada afirmação deve ter Source (Message, Media SHA-256, ou Document+página).
+
+Sem vetores, o Agent só vê o que o SQL devolver. Com vetores, usa busca semântica em **events** e **chunks**. Perguntas largas demais (“mostra toda a timeline”) devem ser recortadas por data, app ou contato.
 
 ### Backup
 
@@ -241,7 +287,7 @@ Navegador
 | `sokol-api` | **8000** | API gateway |
 | `sokol-postgres` | **5433** | Postgres 16 + pgvector + PostGIS |
 | `sokol-redis` | **6379** | Fila de jobs |
-| `sokol-worker` | — | Ingestão em background (`python -m worker.ingest_worker`) |
+| `sokol-worker` | — | Ingestão **e** job `embed` (Indexar vetores) |
 | `sokol-embed` | **8001** | Embeddings (Qwen3-Embedding-0.6B) |
 | `sokol-vision` | **8007** | YOLO |
 | `sokol-ocr` | **8008** | PaddleOCR |
@@ -284,7 +330,7 @@ Papéis: **por caso** Admin / Analista / Leitor; **plataforma** `users.is_platfo
 
 Rotas: `/login`, `/cases`, `/cases/:caseId` (abas em estado local, sem deep-link), `/admin`.
 
-Abas do caso: Timeline, Busca, Chat, Conversas, Dados, Bookmarks, Watchlists, Pendências, Mídia, Rostos, Placas, Voz, OCR, Analytics, Grafo, Playbooks, Relatórios, Análise Cruzada, Identidades, **Operação** (inbox, jobs, cobertura XML/FS).
+Abas do caso: Timeline, Busca (Indexar texto / Indexar vetores), Chat, Conversas, Dados, Bookmarks, Watchlists, Pendências, Mídia (pipeline de detecção), Rostos, Placas, Voz, OCR, Analytics, Grafo, Playbooks, Relatórios, Análise Cruzada, Identidades, **Operação** (inbox, jobs, cobertura XML/FS).
 
 Dev UI: `cd web && npm run dev` (5173). Lint: `npm run lint`. E2E: `npm run test:e2e` (stack no ar).
 
