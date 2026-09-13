@@ -1,7 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGeoEvents, apiTimeline, apiEventApps, apiListComments, apiGetCase, apiCreateBookmark, type GeoEvent, type Event } from '@/lib/api'
+import {
+  apiGeoEvents,
+  apiTimeline,
+  apiEventApps,
+  apiListComments,
+  apiGetCase,
+  apiCreateBookmark,
+  apiLocationPatterns,
+  type GeoEvent,
+  type Event,
+  type LocationPattern,
+} from '@/lib/api'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MapPin, Clock, Loader2, Layers, Bookmark } from 'lucide-react'
+import { MapPin, Clock, Loader2, Layers, Bookmark, Repeat, X } from 'lucide-react'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -11,6 +22,12 @@ import { cn } from '@/lib/cn'
 import { EventCommentToggle } from '@/components/case/CaseCommentsPanel'
 import 'leaflet/dist/leaflet.css'
 
+
+function formatHour(hour: number): string {
+  const h = Math.floor(hour)
+  const m = Math.round((hour - h) * 60)
+  return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, '0')}`
+}
 
 function LeafletMap({ geoEvents }: { geoEvents: GeoEvent[] }) {
   const mapRef = useRef<HTMLDivElement>(null)
@@ -134,6 +151,7 @@ export function MapTab({ caseId }: { caseId: string }) {
   const [endDate, setEndDate] = useState('')
   const [page, setPage] = useState(0)
   const [marked, setMarked] = useState<Record<string, boolean>>({})
+  const [activePattern, setActivePattern] = useState<LocationPattern | null>(null)
   const limit = 50
 
   const bookmarkMut = useMutation({
@@ -146,10 +164,27 @@ export function MapTab({ caseId }: { caseId: string }) {
   })
 
   const { data: geoEvents = [], isLoading: geoLoading } = useQuery({
-    queryKey: ['geo', caseId],
-    queryFn: () => apiGeoEvents(caseId),
+    queryKey: ['geo', caseId, appFilter, startDate, endDate, activePattern],
+    queryFn: () =>
+      apiGeoEvents(caseId, {
+        app: appFilter || undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        weekday: activePattern?.weekday,
+        startHour: activePattern?.start_hour,
+        endHour: activePattern?.end_hour,
+        gridLat: activePattern?.grid_lat,
+        gridLon: activePattern?.grid_lon,
+      }),
     enabled: !!caseId,
   })
+
+  const { data: patternsData, isLoading: patternsLoading } = useQuery({
+    queryKey: ['location-patterns', caseId],
+    queryFn: () => apiLocationPatterns(caseId),
+    enabled: !!caseId,
+  })
+  const patterns = patternsData?.patterns ?? []
 
   const { data: timelineData, isLoading: timelineLoading } = useQuery({
     queryKey: ['timeline', caseId, kindFilter, appFilter, startDate, endDate, page],
@@ -267,6 +302,126 @@ export function MapTab({ caseId }: { caseId: string }) {
 
       {subTab === 'mapa' && (
         <>
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-dim">App:</span>
+              <select
+                value={appFilter}
+                onChange={(e) => setAppFilter(e.target.value)}
+                style={{
+                  height: '2.75rem',
+                  borderRadius: '0.5rem',
+                  border: '1px solid #262626',
+                  backgroundColor: '#141414',
+                  paddingLeft: '1rem',
+                  paddingRight: '1rem',
+                  fontSize: '0.875rem',
+                  color: '#ededed',
+                  minWidth: '150px',
+                }}
+              >
+                <option value="">Todos os apps</option>
+                {appOptions.map((app) => (
+                  <option key={app} value={app}>
+                    {app}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <span className="text-xs text-dim">Período:</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              style={{
+                height: '2.75rem',
+                borderRadius: '0.5rem',
+                border: '1px solid #262626',
+                backgroundColor: '#141414',
+                paddingLeft: '1rem',
+                paddingRight: '1rem',
+                fontSize: '0.875rem',
+                color: '#ededed',
+              }}
+            />
+            <span className="text-xs text-dim">até</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              style={{
+                height: '2.75rem',
+                borderRadius: '0.5rem',
+                border: '1px solid #262626',
+                backgroundColor: '#141414',
+                paddingLeft: '1rem',
+                paddingRight: '1rem',
+                fontSize: '0.875rem',
+                color: '#ededed',
+              }}
+            />
+          </div>
+
+          {activePattern && (
+            <Card className="mb-4 border-accent/40">
+              <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div className="flex items-center gap-2 text-sm text-foreground">
+                  <Repeat className="h-4 w-4 text-accent" />
+                  <span>
+                    Filtrando por padrão: toda <b>{activePattern.weekday_label}</b>, das{' '}
+                    <b>{formatHour(activePattern.start_hour)}</b> às{' '}
+                    <b>{formatHour(activePattern.end_hour)}</b>
+                    {activePattern.sample_address ? ` — ${activePattern.sample_address}` : ''}
+                  </span>
+                </div>
+                <Button variant="secondary" size="sm" onClick={() => setActivePattern(null)}>
+                  <X className="h-3.5 w-3.5" />
+                  Limpar padrão
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {!patternsLoading && patterns.length > 0 && (
+            <Card className="mb-4">
+              <CardContent className="py-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <Repeat className="h-4 w-4 text-muted" />
+                  <h3 className="text-sm font-medium text-foreground">
+                    Padrões de localização recorrente
+                  </h3>
+                </div>
+                <p className="mb-3 text-xs text-dim">
+                  Locais onde o alvo aparece repetidamente no mesmo dia da semana e horário —
+                  indício para revisão, não fato confirmado.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {patterns.map((p, idx) => {
+                    const isActive =
+                      activePattern?.grid_lat === p.grid_lat &&
+                      activePattern?.grid_lon === p.grid_lon &&
+                      activePattern?.weekday === p.weekday
+                    return (
+                      <Button
+                        key={idx}
+                        variant={isActive ? 'default' : 'secondary'}
+                        size="sm"
+                        onClick={() => setActivePattern(isActive ? null : p)}
+                        title={p.sample_address ?? undefined}
+                      >
+                        <Repeat className="h-3 w-3" />
+                        Toda {p.weekday_label}, {formatHour(p.start_hour)}–{formatHour(p.end_hour)}
+                        <span className="opacity-70">
+                          ({p.distinct_weeks} semanas · {p.occurrences}x)
+                        </span>
+                      </Button>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {geoLoading ? (
             <div className="flex justify-center py-16">
               <Loader2 className="h-5 w-5 animate-spin text-muted" />
@@ -275,7 +430,11 @@ export function MapTab({ caseId }: { caseId: string }) {
             <EmptyState
               icon={MapPin}
               title="Nenhum ponto geolocalizado"
-              description="Execute a ingestão de dados para extrair coordenadas GPS."
+              description={
+                appFilter || startDate || endDate || activePattern
+                  ? 'Nenhum ponto bate com os filtros atuais.'
+                  : 'Execute a ingestão de dados para extrair coordenadas GPS.'
+              }
             />
           ) : (
             <div className="space-y-4">

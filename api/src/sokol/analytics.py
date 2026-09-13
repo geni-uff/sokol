@@ -69,6 +69,36 @@ class ContactFrequencyResponse(BaseModel):
     contacts: list[ContactFrequency]
 
 
+WEEKDAY_LABELS = {
+    0: "domingo",
+    1: "segunda-feira",
+    2: "terça-feira",
+    3: "quarta-feira",
+    4: "quinta-feira",
+    5: "sexta-feira",
+    6: "sábado",
+}
+
+
+class LocationPattern(BaseModel):
+    grid_lat: float
+    grid_lon: float
+    weekday: int  # 0=domingo … 6=sábado (Postgres DOW convention)
+    weekday_label: str
+    start_hour: float
+    end_hour: float
+    occurrences: int
+    distinct_weeks: int
+    sample_address: str | None
+    event_ids: list[str]
+
+
+class LocationPatternsResponse(BaseModel):
+    case_id: str
+    timezone: str
+    patterns: list[LocationPattern]
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────
 
 @router.get("/{case_id}/activity-heatmap", response_model=ActivityHeatmap)
@@ -227,5 +257,98 @@ def contact_frequency(
         for cp, kinds in ranked
     ]
     result = ContactFrequencyResponse(case_id=str(case_id), contacts=contacts)
+    cache_set(cache_key, result.model_dump(), _CACHE_TTL)
+    return result
+
+
+@router.get("/{case_id}/location-patterns", response_model=LocationPatternsResponse)
+def location_patterns(
+    case_id: UUID,
+    min_weeks: int = Query(3, ge=2, le=52, description="Semanas distintas mínimas para considerar recorrente"),
+    min_occurrences: int = Query(3, ge=2, le=200, description="Visitas mínimas nesse dia/lugar"),
+    max_window_hours: float = Query(6.0, ge=0.5, le=24.0, description="Janela horária máxima para contar como padrão"),
+    grid_precision: int = Query(3, ge=2, le=5, description="Casas decimais do grid espacial (3 ≈ 111 m)"),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Detect recurring day-of-week + time-of-day location patterns.
+
+    Groups location events into a coarse spatial grid (same ~111 m grid as
+    `location-heatmap`), then within each grid cell looks for a weekday
+    whose visit times cluster into a tight window repeated across several
+    distinct calendar weeks — e.g. "toda segunda, das 10h ao meio-dia, o
+    alvo fica no centro do Rio". This is an Indicator (ADR-0004): a
+    correlation surfaced for human review, not an asserted fact.
+    """
+    factory = get_session_factory()
+    with factory() as db:
+        require_case_member(db, case_id, user.user_id)
+
+        cache_key = (
+            f"sokol:analytics:{case_id}:loc-patterns:"
+            f"{min_weeks}:{min_occurrences}:{max_window_hours}:{grid_precision}"
+        )
+        cached = cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        tz = _case_timezone(db, case_id)
+
+        rows = db.execute(
+            text(f"""
+                SELECT
+                    id,
+                    ROUND(ST_Y(geo::geometry)::numeric, {grid_precision}) AS glat,
+                    ROUND(ST_X(geo::geometry)::numeric, {grid_precision}) AS glon,
+                    ts AT TIME ZONE :tz AS local_ts,
+                    meta
+                FROM events
+                WHERE case_id = :cid
+                  AND kind = 'location'
+                  AND geo IS NOT NULL
+                  AND ts IS NOT NULL
+                ORDER BY local_ts
+            """),
+            {"cid": case_id, "tz": tz},
+        ).fetchall()
+
+    groups: dict[tuple[float, float, int], list] = {}
+    for row_id, glat, glon, local_ts, meta in rows:
+        weekday = (local_ts.weekday() + 1) % 7  # Postgres DOW: 0=domingo
+        iso_year, iso_week, _ = local_ts.isocalendar()
+        key = (float(glat), float(glon), weekday)
+        groups.setdefault(key, []).append((row_id, local_ts, iso_year, iso_week, meta))
+
+    patterns: list[LocationPattern] = []
+    for (glat, glon, weekday), items in groups.items():
+        distinct_weeks = {(y, w) for _, _, y, w, _ in items}
+        if len(distinct_weeks) < min_weeks or len(items) < min_occurrences:
+            continue
+
+        hours = [t.hour + t.minute / 60 for _, t, _, _, _ in items]
+        start_hour, end_hour = min(hours), max(hours)
+        if end_hour - start_hour > max_window_hours:
+            continue
+
+        sample_address = next(
+            (m.get("address") for *_, m in items if isinstance(m, dict) and m.get("address")),
+            None,
+        )
+        patterns.append(
+            LocationPattern(
+                grid_lat=glat,
+                grid_lon=glon,
+                weekday=weekday,
+                weekday_label=WEEKDAY_LABELS[weekday],
+                start_hour=round(start_hour, 2),
+                end_hour=round(end_hour, 2),
+                occurrences=len(items),
+                distinct_weeks=len(distinct_weeks),
+                sample_address=sample_address,
+                event_ids=[str(item[0]) for item in items],
+            )
+        )
+
+    patterns.sort(key=lambda p: (-p.distinct_weeks, -p.occurrences))
+    result = LocationPatternsResponse(case_id=str(case_id), timezone=tz, patterns=patterns[:50])
     cache_set(cache_key, result.model_dump(), _CACHE_TTL)
     return result

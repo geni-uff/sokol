@@ -16,6 +16,14 @@ from .db import get_session_factory
 router = APIRouter(prefix="/events", tags=["events"])
 
 
+def _case_timezone(db, case_id: UUID) -> str:
+    row = db.execute(
+        text("SELECT reference_timezone FROM cases WHERE id = :cid"),
+        {"cid": case_id},
+    ).fetchone()
+    return row[0] if row and row[0] else "America/Sao_Paulo"
+
+
 class EventResponse(BaseModel):
     id: str
     ts: str | None
@@ -278,25 +286,78 @@ def get_nearby_events(
 @router.get("/geo", response_model=list[GeoEvent])
 def get_geo_events(
     case_id: UUID,
+    app: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    weekday: int | None = Query(None, ge=0, le=6, description="0=domingo … 6=sábado, fuso do caso"),
+    start_hour: float | None = Query(None, ge=0, le=24),
+    end_hour: float | None = Query(None, ge=0, le=24),
+    grid_lat: float | None = None,
+    grid_lon: float | None = None,
+    grid_precision: int = Query(3, ge=2, le=5),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Get all geolocalized events for a case, ordered by time."""
+    """Get geolocalized events for a case, ordered by time.
+
+    Optional filters mirror `/events/timeline` (app, date range) plus a
+    recurrence filter (weekday/hour window/grid cell) so a pattern detected
+    by `/analytics/{case_id}/location-patterns` can be applied directly to
+    the map — e.g. only the "toda segunda, 10h–12h" points.
+    """
     factory = get_session_factory()
     with factory() as db:
         require_case_member(db, case_id, user.user_id)
 
+        conditions = ["case_id = :cid", "kind = 'location'", "geo IS NOT NULL"]
+        bind: dict = {"cid": case_id}
+
+        if app:
+            conditions.append(app_filter_sql("app"))
+            bind["app"] = app_filter_value(app)
+        if start_date:
+            conditions.append("ts >= :start_date")
+            bind["start_date"] = start_date
+        if end_date:
+            conditions.append("ts <= :end_date")
+            bind["end_date"] = end_date
+        if grid_lat is not None and grid_lon is not None:
+            conditions.append(
+                f"ROUND(ST_Y(geo::geometry)::numeric, {grid_precision}) = :glat"
+            )
+            conditions.append(
+                f"ROUND(ST_X(geo::geometry)::numeric, {grid_precision}) = :glon"
+            )
+            bind["glat"] = round(grid_lat, grid_precision)
+            bind["glon"] = round(grid_lon, grid_precision)
+
+        needs_tz = weekday is not None or start_hour is not None or end_hour is not None
+        tz = _case_timezone(db, case_id) if needs_tz else None
+        if weekday is not None:
+            conditions.append("EXTRACT(DOW FROM ts AT TIME ZONE :tz)::int = :weekday")
+            bind["tz"] = tz
+            bind["weekday"] = weekday
+        if start_hour is not None or end_hour is not None:
+            bind["tz"] = tz
+            local_hour = "(EXTRACT(HOUR FROM ts AT TIME ZONE :tz) + EXTRACT(MINUTE FROM ts AT TIME ZONE :tz) / 60.0)"
+            if start_hour is not None:
+                conditions.append(f"{local_hour} >= :start_hour")
+                bind["start_hour"] = start_hour
+            if end_hour is not None:
+                conditions.append(f"{local_hour} <= :end_hour")
+                bind["end_hour"] = end_hour
+
+        where = " AND ".join(conditions)
+
         rows = db.execute(
-            text("""
+            text(f"""
                 SELECT id, ts, summary, meta,
                        ST_Y(geo::geometry) as lat,
                        ST_X(geo::geometry) as lon
                 FROM events
-                WHERE case_id = :cid
-                  AND kind = 'location'
-                  AND geo IS NOT NULL
+                WHERE {where}
                 ORDER BY ts ASC
             """),
-            {"cid": case_id},
+            bind,
         ).fetchall()
 
         return [
