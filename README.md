@@ -146,7 +146,7 @@ Navegador
 | `sokol-redis` | 6379 | Fila |
 | `sokol-worker` | — | Ingestion e job `embed` |
 | `sokol-embed` | 8001 | Embeddings (Qwen3-Embedding-0.6B, 1024-d) |
-| `sokol-vision` | 8007 | YOLO |
+| `sokol-vision` | 8007 | YOLO26x + YOLO-World + Grounding DINO |
 | `sokol-ocr` | 8008 | PaddleOCR |
 | `sokol-asr` | 8009 | faster-whisper |
 | `sokol-plate` | 8010 | Placas |

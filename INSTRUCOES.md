@@ -85,7 +85,7 @@ O LLM do Agent corre no **LM Studio** no host. Os outros serviços correm em con
 | Redis | 6379 | Fila. |
 | Worker | — | Ingestion e Indexar vetores. Um Job de cada vez. |
 | sokol-embed | 8001 | Vetores de texto (1024 dimensões). |
-| sokol-vision | 8007 | Objectos em imagem (YOLO). |
+| sokol-vision | 8007 | Armas em imagem (YOLO26x + YOLO-World + Grounding DINO). |
 | sokol-ocr | 8008 | Texto em imagem. |
 | sokol-asr | 8009 | Transcrição de áudio. |
 | sokol-plate | 8010 | Placas. |
@@ -444,12 +444,17 @@ Três Jobs distintos. Um não substitui o outro.
 **Pipeline**
 
 1. Abra a aba **Mídia**.
-2. Clique em **Amostra** para triagem (80 imagens e 40 áudios).
-3. Clique em **Tudo** só se a amostra chegar e houver tempo e GPU.
+2. Escolha quantas imagens, áudios e vídeos entram no lote (padrão 20 / 10 / 5).
+3. Clique em **Amostra**. O lote segue a cronologia (mais antigo primeiro). Quando terminar, um novo clique pega o **próximo** lote, não o mesmo.
+4. Clique em **Caso inteiro** só se quiser processar toda a mídia extraível de uma vez.
+
+A visão corre uma cascata: YOLO26x (vocabulário fechado de armas) → YOLO-World (vocabulário aberto) → Grounding DINO só nas imagens que o World marcou. CLIP descarta caixa que parece celular ou secador. Pessoa e objeto COCO não entram neste pipeline; rostos ficam no InsightFace. Vídeos entram só no ASR.
 
 Rostos, Placas, Voz e OCR vazios após a Ingestion são o estado esperado. Corra o pipeline.
 
 O resultado é **Indicator**. O Agent não afirma Indicator como Fact. O laudo não usa Indicator como asserção. Para Fact, resolva a **Pendência**.
+
+Imagens enviadas no WhatsApp aparecem nas bolhas da aba **Conversas** depois da ingestão. UFDRs já ingeridos antes desta correção precisam ser ingeridos de novo (Messages e Events duplicam se for o mesmo extract).
 
 **Indexar texto**
 
@@ -627,7 +632,7 @@ curl -X POST http://localhost:8000/ingest/batch \
 | Rostos/placas/OCR vazios | Pipeline não correu | Aba **Mídia** → **Amostra** |
 | `lmstudio` não ok no `/health` | Servidor 1234 parado | Ligue o LM Studio. Carregue o LLM |
 | Indexar vetores lento | CPU no `sokol-embed` | Deixe o Job no worker |
-| Health da API a falhar durante Mídia | Pipeline na API (threads) | Espere o Job. Não lance Tudo em paralelo com uso pesado |
+| Health da API a falhar durante Mídia | Pipeline na API (threads) | Espere o Job. Não lance Caso inteiro em paralelo com uso pesado |
 | Timeline vazia e Conversas cheias | Filtro ou mapeamento de Event | Tire o filtro de app. WhatsApp na Timeline lê Events |
 
 ---

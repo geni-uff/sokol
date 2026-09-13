@@ -27,6 +27,13 @@ from .db import get_session_factory
 from .jobs import emit_progress
 from .media import sniff_image_mime
 from .plate_parse import PLATE_DETECT_PATH, parse_plate_service_payload
+from .pipeline_sample import (
+    list_case_media,
+    load_seen,
+    mark_seen,
+    next_unseen,
+    remaining_count,
+)
 from .ufdr_extract import ensure_media_on_disk
 
 router = APIRouter(prefix="/detect", tags=["detect"])
@@ -49,7 +56,20 @@ class PipelineResult(BaseModel):
     mode: str = "sample"
     image_count: int = 0
     audio_count: int = 0
+    video_count: int = 0
     missing_files: int = 0
+    remaining_images: int = 0
+    remaining_audios: int = 0
+    remaining_videos: int = 0
+
+
+class PipelineQueue(BaseModel):
+    remaining_images: int
+    remaining_audios: int
+    remaining_videos: int
+    total_images: int
+    total_audios: int
+    total_videos: int
 
 
 class JobStatus(BaseModel):
@@ -61,9 +81,6 @@ class JobStatus(BaseModel):
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
-PREFERRED_IMAGE = ("image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic")
-
-
 def _find_media_file(media_hash: str, case_id: str | None = None) -> Optional[Path]:
     if MEDIA_CACHE.exists():
         direct = MEDIA_CACHE / media_hash
@@ -91,36 +108,8 @@ def _find_media_file(media_hash: str, case_id: str | None = None) -> Optional[Pa
 
 
 def _list_case_media(db, case_id: str, mime_prefix: str) -> list[dict]:
-    rows = (
-        db.execute(
-            text("""
-            SELECT DISTINCT m.hash, m.mime_type, m.storage_ref
-            FROM media m
-            LEFT JOIN (SELECT media_hash FROM messages WHERE case_id = :cid AND media_hash IS NOT NULL) msg
-              ON msg.media_hash = m.hash
-            LEFT JOIN (SELECT media_hash FROM artifacts WHERE case_id = :cid AND media_hash IS NOT NULL) art
-              ON art.media_hash = m.hash
-            WHERE (msg.media_hash IS NOT NULL OR art.media_hash IS NOT NULL)
-              AND (
-                m.mime_type LIKE :prefix
-                OR m.mime_type = 'application/octet-stream'
-              )
-        """),
-            {"cid": case_id, "prefix": f"{mime_prefix}%"},
-        )
-        .mappings()
-        .all()
-    )
-    out = []
-    for r in rows:
-        ref = r["storage_ref"] or {}
-        if isinstance(ref, str):
-            try:
-                ref = json.loads(ref)
-            except json.JSONDecodeError:
-                ref = {}
-        out.append({"hash": r["hash"], "mime_type": r["mime_type"] or "", "storage_ref": ref})
-    return out
+    allow_octet = mime_prefix.startswith("image/")
+    return list_case_media(db, case_id, mime_prefix, allow_octet=allow_octet)
 
 
 def _get_case_images(db, case_id: str) -> list[str]:
@@ -138,23 +127,23 @@ def _select_and_extract(
     *,
     mode: str,
     limit: int,
-    preferred_mimes: tuple[str, ...],
+    kind: str,
 ) -> tuple[list[str], int]:
-    """Prefer real image/audio MIME, extract from UFDR, drop hashes with no file."""
-    preferred = [i for i in items if (i["mime_type"] or "").lower() in preferred_mimes]
-    rest = [i for i in items if i not in preferred]
-    ordered = preferred + rest
+    """Extract files for the next unseen chronological batch (or the full case)."""
+    if mode == "sample":
+        seen = load_seen(db, case_id, kind)
+        stream = next_unseen(items, seen, len(items))
+    else:
+        stream = items
+
     selected: list[str] = []
+    attempted: list[str] = []
     missing = 0
     cap = None if mode == "all" else limit
-    max_attempts = None if mode == "all" else max(limit * 10, 200)
-    attempts = 0
-    for item in ordered:
+    for item in stream:
         if cap is not None and len(selected) >= cap:
             break
-        if max_attempts is not None and attempts >= max_attempts:
-            break
-        attempts += 1
+        attempted.append(item["hash"])
         path = ensure_media_on_disk(db, case_id, item["hash"], item["storage_ref"])
         if path is None:
             missing += 1
@@ -166,6 +155,8 @@ def _select_and_extract(
                 {"m": sniffed, "h": item["hash"]},
             )
         selected.append(item["hash"])
+
+    mark_seen(db, case_id, kind, attempted)
     db.commit()
     return selected, missing
 
@@ -229,7 +220,7 @@ def _run_yolo_job(job_id: str, case_id: str, image_hashes: list[str]):
         )
 
         total = len(image_hashes)
-        batch_size = 16
+        batch_size = 8
         total_dets = 0
 
         for i in range(0, total, batch_size):
@@ -246,13 +237,13 @@ def _run_yolo_job(job_id: str, case_id: str, image_hashes: list[str]):
                 continue
 
             try:
-                with httpx.Client(timeout=300) as client:
+                with httpx.Client(timeout=600) as client:
                     resp = client.post(
                         f"{VISION_URL}/detect/batch",
                         json={
                             "image_ids": hashes,
                             "image_paths": paths,
-                            "models": ["coco", "firearm", "threat"],
+                            "models": ["cascade"],
                         },
                     )
                     resp.raise_for_status()
@@ -261,8 +252,11 @@ def _run_yolo_job(job_id: str, case_id: str, image_hashes: list[str]):
                 factory = get_session_factory()
                 with factory() as db:
                     for result in results:
+                        pipeline_ver = result.get(
+                            "pipeline_version", "weapon-cascade-v1"
+                        )
                         for det in result.get("detections", []):
-                            if det["confidence"] < 0.25:
+                            if det["confidence"] < 0.15:
                                 continue
                             db.execute(
                                 text("""
@@ -278,7 +272,7 @@ def _run_yolo_job(job_id: str, case_id: str, image_hashes: list[str]):
                                     "cls_id": det["class_id"],
                                     "conf": det["confidence"],
                                     "bbox": json.dumps(det["bbox"]),
-                                    "ver": "yolov8n-v1",
+                                    "ver": pipeline_ver,
                                 },
                             )
                             total_dets += 1
@@ -651,27 +645,31 @@ def _run_ocr_job(job_id: str, case_id: str, image_hashes: list[str]):
 async def launch_pipeline(
     case_id: str,
     mode: str = Query("sample", pattern="^(sample|all)$"),
-    sample_images: int = Query(80, ge=1, le=5000),
-    sample_audios: int = Query(40, ge=1, le=2000),
+    sample_images: int = Query(20, ge=1, le=5000),
+    sample_audios: int = Query(10, ge=1, le=2000),
+    sample_videos: int = Query(5, ge=1, le=500),
+    user: CurrentUser = Depends(get_current_user),
 ):
-    """Launch parallel detection jobs. Default is a sample, not the full case."""
+    """Launch detection jobs. Sample takes the next unseen chronological batch."""
     factory = get_session_factory()
     with factory() as db:
+        require_case_member(db, UUID(case_id), user.user_id)
         case = db.execute(
             text("SELECT id FROM cases WHERE id = :id"), {"id": case_id}
         ).fetchone()
         if not case:
             raise HTTPException(status_code=404, detail="Caso não encontrado")
 
-        image_items = _list_case_media(db, case_id, "image/")
-        audio_items = _list_case_media(db, case_id, "audio/")
+        image_items = list_case_media(db, case_id, "image/", allow_octet=True)
+        audio_items = list_case_media(db, case_id, "audio/", allow_octet=False)
+        video_items = list_case_media(db, case_id, "video/", allow_octet=False)
         image_hashes, img_missing = _select_and_extract(
             db,
             case_id,
             image_items,
             mode=mode,
             limit=sample_images,
-            preferred_mimes=PREFERRED_IMAGE,
+            kind="image",
         )
         audio_hashes, aud_missing = _select_and_extract(
             db,
@@ -679,18 +677,30 @@ async def launch_pipeline(
             audio_items,
             mode=mode,
             limit=sample_audios,
-            preferred_mimes=("audio/opus", "audio/mpeg", "audio/mp4", "audio/ogg", "audio/wav"),
+            kind="audio",
         )
+        video_hashes, vid_missing = _select_and_extract(
+            db,
+            case_id,
+            video_items,
+            mode=mode,
+            limit=sample_videos,
+            kind="video",
+        )
+        rem_img = remaining_count(db, case_id, "image", len(image_items))
+        rem_aud = remaining_count(db, case_id, "audio", len(audio_items))
+        rem_vid = remaining_count(db, case_id, "video", len(video_items))
 
     skipped: dict[str, str] = {}
     warnings: list[str] = []
     job_ids: dict[str, str] = {}
-    missing_files = img_missing + aud_missing
+    missing_files = img_missing + aud_missing + vid_missing
     if missing_files:
         warnings.append(f"{missing_files} arquivo(s) sem binário no UFDR/cache")
     if mode == "sample":
         warnings.append(
-            f"Modo amostra: {len(image_hashes)} imagem(ns), {len(audio_hashes)} áudio(s)"
+            f"Lote: {len(image_hashes)} imagem(ns), {len(audio_hashes)} áudio(s), "
+            f"{len(video_hashes)} vídeo(s) · restam {rem_img} img, {rem_aud} áudio, {rem_vid} vídeo"
         )
 
     async def _ok(url: str) -> bool:
@@ -741,7 +751,8 @@ async def launch_pipeline(
     else:
         warnings.append("Nenhuma imagem extraível no caso para YOLO/faces/placas/OCR")
 
-    if audio_hashes:
+    asr_hashes = audio_hashes + video_hashes
+    if asr_hashes:
         if await _ok(ASR_URL):
             job_id = str(uuid4())
             job_ids["asr"] = job_id
@@ -750,17 +761,17 @@ async def launch_pipeline(
                 "asr",
                 "pending",
                 0.0,
-                f"Na fila: ASR em {len(audio_hashes)} áudios",
+                f"Na fila: ASR em {len(audio_hashes)} áudios e {len(video_hashes)} vídeos",
                 case_id=case_id,
             )
             t = threading.Thread(
-                target=_run_asr_job, args=(job_id, case_id, audio_hashes), daemon=True
+                target=_run_asr_job, args=(job_id, case_id, asr_hashes), daemon=True
             )
             t.start()
         else:
             skipped["asr"] = f"Serviço ASR indisponível em {ASR_URL}"
     else:
-        warnings.append("Nenhum áudio extraível no caso para ASR")
+        warnings.append("Nenhum áudio ou vídeo extraível no caso para ASR")
 
     if not job_ids and skipped:
         raise HTTPException(
@@ -776,8 +787,39 @@ async def launch_pipeline(
         mode=mode,
         image_count=len(image_hashes),
         audio_count=len(audio_hashes),
+        video_count=len(video_hashes),
         missing_files=missing_files,
+        remaining_images=rem_img,
+        remaining_audios=rem_aud,
+        remaining_videos=rem_vid,
     )
+
+
+@router.get("/pipeline/{case_id}/queue", response_model=PipelineQueue)
+async def pipeline_queue(
+    case_id: str,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """How much chronological media is still unseen in sample mode."""
+    factory = get_session_factory()
+    with factory() as db:
+        require_case_member(db, UUID(case_id), user.user_id)
+        case = db.execute(
+            text("SELECT id FROM cases WHERE id = :id"), {"id": case_id}
+        ).fetchone()
+        if not case:
+            raise HTTPException(status_code=404, detail="Caso não encontrado")
+        images = list_case_media(db, case_id, "image/", allow_octet=True)
+        audios = list_case_media(db, case_id, "audio/", allow_octet=False)
+        videos = list_case_media(db, case_id, "video/", allow_octet=False)
+        return PipelineQueue(
+            remaining_images=remaining_count(db, case_id, "image", len(images)),
+            remaining_audios=remaining_count(db, case_id, "audio", len(audios)),
+            remaining_videos=remaining_count(db, case_id, "video", len(videos)),
+            total_images=len(images),
+            total_audios=len(audios),
+            total_videos=len(videos),
+        )
 
 
 @router.post("/chunk/{case_id}")

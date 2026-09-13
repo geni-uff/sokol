@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { MediaLightbox, isExpandableMedia } from '@/components/case/MediaLightbox'
 
 const APP_COLORS: Record<string, string> = {
   WhatsApp: 'text-green-400',
@@ -85,6 +86,94 @@ function ChatList({
   )
 }
 
+function MessageMedia({
+  hash,
+  mimeType,
+  caseId,
+}: {
+  hash: string
+  mimeType?: string | null
+  caseId: string
+}) {
+  const [failed, setFailed] = useState(false)
+  const [open, setOpen] = useState(false)
+  const src = getMediaUrl(hash, caseId)
+  const mime = mimeType || ''
+  const isVideo = mime.startsWith('video/')
+  const isAudio = mime.startsWith('audio/')
+  const expandable = isExpandableMedia(mimeType)
+
+  if (failed) {
+    return <p className="mt-2 text-[11px] text-dim">Mídia indisponível</p>
+  }
+
+  if (isAudio) {
+    return (
+      <audio
+        className="mt-2 w-full max-w-[240px]"
+        controls
+        src={src}
+        onError={() => setFailed(true)}
+      />
+    )
+  }
+
+  if (isVideo) {
+    return (
+      <>
+        <button
+          type="button"
+          className="mt-2 block overflow-hidden rounded"
+          style={{ maxWidth: '240px' }}
+          onClick={() => expandable && setOpen(true)}
+        >
+          <video
+            src={src}
+            className="w-full object-contain"
+            style={{ maxHeight: '180px' }}
+            controls
+            playsInline
+            onError={() => setFailed(true)}
+          />
+        </button>
+        <MediaLightbox
+          open={open}
+          onClose={() => setOpen(false)}
+          caseId={caseId}
+          hash={hash}
+          mimeType={mimeType}
+        />
+      </>
+    )
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="mt-2 block overflow-hidden rounded"
+        style={{ maxWidth: '240px' }}
+        onClick={() => expandable && setOpen(true)}
+      >
+        <img
+          src={src}
+          alt="mídia da conversa"
+          className="w-full object-contain"
+          style={{ maxHeight: '180px' }}
+          onError={() => setFailed(true)}
+        />
+      </button>
+      <MediaLightbox
+        open={open}
+        onClose={() => setOpen(false)}
+        caseId={caseId}
+        hash={hash}
+        mimeType={mimeType}
+      />
+    </>
+  )
+}
+
 function MessageBubble({ msg, caseId }: { msg: MessageItem; caseId: string }) {
   const isOut = msg.direction === 'outgoing'
   return (
@@ -104,15 +193,7 @@ function MessageBubble({ msg, caseId }: { msg: MessageItem; caseId: string }) {
         )}
         {msg.text && <p className="text-sm text-foreground leading-relaxed">{msg.text}</p>}
         {msg.media_hash && (
-          <div className="mt-2 overflow-hidden rounded" style={{ maxWidth: '200px' }}>
-            <img
-              src={getMediaUrl(msg.media_hash, caseId)}
-              alt="mídia"
-              className="w-full object-contain"
-              style={{ maxHeight: '160px' }}
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-            />
-          </div>
+          <MessageMedia hash={msg.media_hash} mimeType={msg.mime_type} caseId={caseId} />
         )}
         <p className="text-[10px] text-dim mt-1 text-right">{formatTs(msg.ts)}</p>
       </div>

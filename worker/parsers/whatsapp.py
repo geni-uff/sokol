@@ -49,6 +49,91 @@ def _nested_messages(model: dict) -> list[dict]:
     return out
 
 
+_ATTACHMENT_CONTAINERS = {
+    "attachment",
+    "attachments",
+    "embeddedfile",
+    "embeddedfiles",
+    "datafile",
+    "datafiles",
+    "file",
+    "files",
+    "sharedfile",
+    "sharedfiles",
+}
+
+_FILE_ID_KEYS = {"fileid", "attachmentid", "datafileid"}
+_PATH_KEYS = {
+    "filename",
+    "name",
+    "url",
+    "attachmentextractedpath",
+    "extractedpath",
+    "localpath",
+    "local path",
+    "path",
+}
+
+
+def _field_key(name: str) -> str:
+    return (name or "").rsplit(".", 1)[-1].replace("_", "").replace(" ", "").lower()
+
+
+def _is_attachment_container(name: str) -> bool:
+    return (name or "").replace("_", "").replace(" ", "").lower() in _ATTACHMENT_CONTAINERS
+
+
+def extract_attachment_refs(model: dict) -> tuple[list[str], list[str]]:
+    """File ids and path/name hints from InstantMessage Attachment models."""
+    file_ids: list[str] = []
+    names: list[str] = []
+    seen_ids: set[str] = set()
+    seen_names: set[str] = set()
+
+    def _add_id(val: str) -> None:
+        if val and val not in seen_ids:
+            seen_ids.add(val)
+            file_ids.append(val)
+
+    def _add_name(val: str) -> None:
+        if val and val not in seen_names:
+            seen_names.add(val)
+            names.append(val)
+
+    def _walk(node: dict, *, in_attachment: bool) -> None:
+        if in_attachment:
+            _add_id((node.get("id") or "").strip())
+        for f in node.get("fields") or []:
+            key = _field_key(f.get("name") or "")
+            val = (f.get("value") or "").strip()
+            if not val:
+                continue
+            if key in _FILE_ID_KEYS or (in_attachment and key == "id"):
+                _add_id(val)
+            elif key in _PATH_KEYS and (in_attachment or key != "name"):
+                _add_name(val)
+            elif key == "attachment":
+                _add_id(val)
+
+        for mf in node.get("modelFields") or []:
+            nested = mf.get("model") or {}
+            child_att = in_attachment or _is_attachment_container(
+                mf.get("name") or ""
+            ) or _is_attachment_container(nested.get("type") or "")
+            if child_att:
+                _walk(nested, in_attachment=True)
+
+        for mmf in node.get("multiModelFields") or []:
+            child_att = in_attachment or _is_attachment_container(mmf.get("name") or "")
+            if not child_att:
+                continue
+            for sub in mmf.get("models") or []:
+                _walk(sub, in_attachment=True)
+
+    _walk(model, in_attachment=False)
+    return file_ids, names
+
+
 def _parse_instant_message(
     msg_model: dict,
     device_id: str,
@@ -61,8 +146,9 @@ def _parse_instant_message(
     model_id = msg_model.get("id", "")
 
     body = extract_field(msg_model, "Body") or ""
-    if not body:
-        return result  # media-only or system stub; nothing to index as text
+    file_ids, attach_names = extract_attachment_refs(msg_model)
+    if not body and not file_ids and not attach_names:
+        return result
 
     source = extract_field(msg_model, "Source") or chat_source or "WhatsApp"
     raw_ts = extract_field(msg_model, "TimeStamp")
@@ -89,18 +175,21 @@ def _parse_instant_message(
             counterpart=counterpart,
             ts=ts,
             direction=direction,
-            text=body,
+            text=body or None,
             meta={
                 "model_id": model_id,
                 "chat_name": chat_name,
                 "sender_name": sender_name,
                 "status": extract_field(msg_model, "Status"),
+                "attachment_file_ids": file_ids,
+                "attachment_names": attach_names,
             },
         )
     )
 
-    summary = f"[{source}] {sender_name}: {body[:120]}"
-    if len(body) > 120:
+    preview = body[:120] if body else "[mídia]"
+    summary = f"[{source}] {sender_name}: {preview}"
+    if body and len(body) > 120:
         summary += "..."
     result.events.append(
         ParsedEvent(
@@ -132,8 +221,9 @@ def _parse_flat(model: dict, device_id: str) -> ParseResult:
     sender_id = extract_field(model, "Sender") or extract_field(model, "From")
     body = extract_field(model, "Body") or extract_field(model, "Text") or ""
     direction = extract_field(model, "Direction") or ""
+    file_ids, attach_names = extract_attachment_refs(model)
 
-    if not body:
+    if not body and not file_ids and not attach_names:
         result.errors.append(
             ParseError(
                 model_id=model_id,
@@ -169,11 +259,13 @@ def _parse_flat(model: dict, device_id: str) -> ParseResult:
             counterpart=counterpart,
             ts=start_time,
             direction=dir_normalized,
-            text=body,
+            text=body or None,
             meta={
                 "model_id": model_id,
                 "chat_name": chat_name,
                 "participants": [p.get("identifier") for p in participants],
+                "attachment_file_ids": file_ids,
+                "attachment_names": attach_names,
             },
         )
     )
@@ -186,8 +278,9 @@ def _parse_flat(model: dict, device_id: str) -> ParseResult:
         ),
         sender_id,
     )
-    summary = f"[{source}] {actor_name}: {body[:120]}"
-    if len(body) > 120:
+    preview = body[:120] if body else "[mídia]"
+    summary = f"[{source}] {actor_name}: {preview}"
+    if body and len(body) > 120:
         summary += "..."
 
     result.events.append(

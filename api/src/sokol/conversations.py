@@ -26,6 +26,7 @@ class MessageItem(BaseModel):
     text: str | None
     media_hash: str | None
     is_forwarded: bool | None
+    mime_type: str | None = None
 
 
 class MessagesResponse(BaseModel):
@@ -139,8 +140,9 @@ def list_messages(
 
         rows = db.execute(
             text(f"""
-                SELECT id, app, chat_id, sender, counterpart,
-                       ts, direction, text, media_hash, is_forwarded
+                SELECT d.id, d.app, d.chat_id, d.sender, d.counterpart,
+                       d.ts, d.direction, d.text, d.media_hash, d.is_forwarded,
+                       media.mime_type
                 FROM (
                     SELECT DISTINCT ON (COALESCE(chat_id,''), ts, COALESCE(text,''), COALESCE(direction,''), COALESCE(sender,''))
                         id, app, chat_id, sender, counterpart,
@@ -148,8 +150,9 @@ def list_messages(
                     FROM messages
                     WHERE {where}
                     ORDER BY COALESCE(chat_id,''), ts, COALESCE(text,''), COALESCE(direction,''), COALESCE(sender,''), id
-                ) dedup
-                ORDER BY ts ASC NULLS LAST
+                ) d
+                LEFT JOIN media ON media.hash = d.media_hash
+                ORDER BY d.ts ASC NULLS LAST
                 LIMIT :limit OFFSET :offset
             """),
             bind,
@@ -167,6 +170,7 @@ def list_messages(
             text=r[7],
             media_hash=r[8],
             is_forwarded=r[9],
+            mime_type=r[10],
         )
         for r in rows
     ]
