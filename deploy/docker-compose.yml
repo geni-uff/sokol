@@ -95,7 +95,7 @@ services:
       - sokol-net
 
   # ---------------------------------------------------------------------------
-  # Vision service — YOLO object detection
+  # Vision service — YOLO26x + YOLO-World + Grounding DINO
   # ---------------------------------------------------------------------------
   sokol-vision:
     build:
@@ -105,18 +105,31 @@ services:
     restart: unless-stopped
     environment:
       SOKOL_MODEL_DIR: /data/models/vision
-      SOKOL_VISION_CONF: ${SOKOL_VISION_CONF:-0.25}
+      SOKOL_VISION_CONF: ${SOKOL_VISION_CONF:-0.20}
+      SOKOL_VISION_WORLD_CONF: ${SOKOL_VISION_WORLD_CONF:-0.15}
+      SOKOL_VISION_DINO_CONF: ${SOKOL_VISION_DINO_CONF:-0.25}
+      SOKOL_VISION_IMGSZ: ${SOKOL_VISION_IMGSZ:-1024}
+      SOKOL_VISION_DINO: ${SOKOL_VISION_DINO:-1}
+      SOKOL_VISION_CLIP: ${SOKOL_VISION_CLIP:-1}
+      SOKOL_VISION_DEVICE: ${SOKOL_VISION_DEVICE:-auto}
     ports:
       - "${SOKOL_VISION_PORT:-8007}:8007"
     volumes:
       - sokol-vision-models:/data/models/vision
       - ../data/media-cache:/data/media-cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${SOKOL_VISION_GPU_COUNT:-1}
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8007/health')"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 60s
+      retries: 10
+      start_period: 600s
     networks:
       - sokol-net
 

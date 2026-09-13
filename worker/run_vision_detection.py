@@ -1,7 +1,7 @@
 """Run vision detection on existing media in a case.
 
 Usage:
-    python run_vision_detection.py <case_id> [--models coco,firearm,threat] [--confidence 0.25]
+    python run_vision_detection.py <case_id> [--models cascade] [--confidence 0.15]
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ async def detect_batch(
     base_url: str = "http://localhost:8007",
 ) -> list[dict]:
     """Call vision service batch detection."""
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with httpx.AsyncClient(timeout=600.0) as client:
         response = await client.post(
             f"{base_url}/detect/batch",
             json={
@@ -59,11 +59,11 @@ def main():
     parser.add_argument("case_id", help="Case UUID")
     parser.add_argument(
         "--models",
-        default="coco,firearm,threat",
-        help="Models to use (comma-separated)",
+        default="cascade",
+        help="Models to use (comma-separated). cascade = YOLO26x + YOLO-World + DINO",
     )
     parser.add_argument(
-        "--confidence", type=float, default=0.25, help="Confidence threshold"
+        "--confidence", type=float, default=0.15, help="Confidence threshold"
     )
     parser.add_argument(
         "--vision-url", default="http://localhost:8007", help="Vision service URL"
@@ -156,15 +156,16 @@ def main():
                         break
 
             if file_path and file_path.exists():
-                # Convert host path to container path for vision service
+                # sokol-vision reads paths from its own mount of the media
+                # cache, which can differ from this process's view of it
+                # (e.g. running this script on the host against a bind mount,
+                # rather than inside the sokol-worker container). Only
+                # rewrite the prefix when the operator has told us the two
+                # differ; otherwise the path is used as-is.
                 host_path = str(file_path)
-                if host_path.startswith(
-                    "/home/mateuspestana/Documents/Sokol/data/media-cache/"
-                ):
-                    container_path = host_path.replace(
-                        "/home/mateuspestana/Documents/Sokol/data/media-cache/",
-                        "/data/media-cache/",
-                    )
+                host_media_cache = os.getenv("SOKOL_VISION_HOST_MEDIA_CACHE_DIR")
+                if host_media_cache and host_path.startswith(host_media_cache):
+                    container_path = args.media_cache + host_path[len(host_media_cache) :]
                 else:
                     container_path = host_path
                 image_paths.append(container_path)
@@ -219,7 +220,9 @@ def main():
                                 "cls_id": det["class_id"],
                                 "conf": det["confidence"],
                                 "bbox": json.dumps(det["bbox"]),
-                                "version": "yolov8n-v1",
+                                "version": result.get(
+                                    "pipeline_version", "weapon-cascade-v1"
+                                ),
                             },
                         )
                         total_detections += 1

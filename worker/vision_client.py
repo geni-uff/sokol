@@ -26,9 +26,9 @@ class VisionClient:
     ) -> dict:
         """Detect objects in a single image."""
         if models is None:
-            models = ["coco", "firearm", "threat"]
+            models = ["cascade"]
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             with open(image_path, "rb") as f:
                 files = {"file": (str(image_path), f, "image/jpeg")}
                 data = {
@@ -54,12 +54,12 @@ class VisionClient:
     ) -> list[dict]:
         """Detect objects in multiple images."""
         if models is None:
-            models = ["coco", "firearm", "threat"]
+            models = ["cascade"]
 
         if image_ids is None:
             image_ids = [str(p) for p in image_paths]
 
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=600.0) as client:
             response = await client.post(
                 f"{self.base_url}/detect/batch",
                 json={

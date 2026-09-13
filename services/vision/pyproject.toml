@@ -1,15 +1,20 @@
 [project]
 name = "sokol-vision"
 version = "0.8.2"
-description = "SOKOL Vision Service — Object detection with YOLO models"
+description = "SOKOL Vision Service — weapon cascade (YOLO26x + YOLO-World + Grounding DINO)"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
-    "ultralytics",
+    "python-multipart",
+    "ultralytics>=8.4.123",
     "pillow",
     "httpx",
     "huggingface-hub",
+    "transformers>=4.40.0",
+    "timm",
+    "ftfy",
+    "clip @ git+https://github.com/ultralytics/CLIP.git",
 ]
 
 [build-system]
