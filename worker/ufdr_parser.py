@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 from .parsers import PARSERS
 from .parsers.contract import ParseResult, ParseError, ParsedEntity, ParsedEntityLink
 from .fs_walk import inventory_fs_media, walk_ufdr_filesystem
+from .mime_map import classify_extension
 
 # Cellebrite namespace
 NS = "http://pa.cellebrite.com/report/2.0"
@@ -60,6 +61,63 @@ def _append_audit(db, *, case_id, actor_user_id, action, payload):
             "now": now,
         },
     )
+
+
+def build_file_sha_lookup(file_entries: list[dict]) -> dict[str, str]:
+    """Map file_id, basename and path suffixes onto sha256."""
+    lookup: dict[str, str] = {}
+    for fe in file_entries:
+        sha = fe.get("sha256")
+        if not sha:
+            continue
+        keys = []
+        fid = fe.get("file_id")
+        if fid:
+            keys.append(str(fid))
+        name = fe.get("name") or ""
+        if name:
+            keys.append(name)
+            keys.append(name.lower())
+        for raw in (fe.get("local_path"), fe.get("path")):
+            if not raw:
+                continue
+            posix = str(raw).replace("\\", "/")
+            keys.append(posix)
+            keys.append(posix.lower())
+            base = posix.rsplit("/", 1)[-1]
+            if base:
+                keys.append(base)
+                keys.append(base.lower())
+        for key in keys:
+            lookup.setdefault(key, sha)
+    return lookup
+
+
+def resolve_message_media_hash(
+    media_hash: str | None,
+    meta: dict | None,
+    lookup: dict[str, str],
+) -> str | None:
+    """Resolve InstantMessage attachments to a media SHA-256."""
+    if media_hash:
+        return media_hash
+    meta = meta or {}
+    for fid in meta.get("attachment_file_ids") or []:
+        hit = lookup.get(fid) or lookup.get(str(fid).lower())
+        if hit:
+            return hit
+        if isinstance(fid, str) and len(fid) == 64 and fid in lookup.values():
+            return fid
+    for name in meta.get("attachment_names") or []:
+        raw = str(name).strip()
+        if not raw:
+            continue
+        posix = raw.replace("\\", "/")
+        for key in (raw, raw.lower(), posix, posix.lower(), posix.rsplit("/", 1)[-1], posix.rsplit("/", 1)[-1].lower()):
+            hit = lookup.get(key)
+            if hit:
+                return hit
+    return None
 
 
 def _parse_ts(raw: str | None) -> datetime | None:
@@ -436,28 +494,14 @@ def process_ufdr(
             "Exchange": "email",
             "Uncategorized": "other",
         }
-        kind = kind_map.get(tag, "other")
 
-        # Determine mime type from extension
+        # Determine mime type/kind: prefer a value already computed upstream
+        # (e.g. by fs_walk's filesystem inventory), else classify by
+        # extension, else fall back to the Cellebrite tag.
         ext = Path(fe["name"]).suffix.lower()
-        mime_map = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".heic": "image/heic",
-            ".webp": "image/webp",
-            ".opus": "audio/opus",
-            ".m4a": "audio/mp4",
-            ".mp3": "audio/mpeg",
-            ".mp4": "video/mp4",
-            ".mov": "video/quicktime",
-            ".pdf": "application/pdf",
-            ".txt": "text/plain",
-            ".csv": "text/csv",
-            ".html": "text/html",
-            ".json": "application/json",
-        }
-        mime_type = mime_map.get(ext, "application/octet-stream")
+        classified = classify_extension(ext)
+        kind = fe.get("kind") or (classified[0] if classified else None) or kind_map.get(tag, "other")
+        mime_type = fe.get("mime_type") or (classified[1] if classified else None) or "application/octet-stream"
 
         db.execute(
             text("""
@@ -577,12 +621,13 @@ def process_ufdr(
     emit(
         "insert_messages", 0.75, f"Inserting {len(parsed_result.messages)} messages..."
     )
+    file_lookup = build_file_sha_lookup(file_entries)
     msg_ids = []  # track inserted message IDs in order
     msg_count = 0
     for msg in parsed_result.messages:
         msg_id = uuid4()
         msg_ids.append(msg_id)
-        now = datetime.now(timezone.utc)
+        media_hash = resolve_message_media_hash(msg.media_hash, msg.meta, file_lookup)
         db.execute(
             text("""
                 INSERT INTO messages (id, case_id, device_id, app, chat_id, sender,
@@ -602,7 +647,7 @@ def process_ufdr(
                 "ts": msg.ts,
                 "dir": msg.direction,
                 "text": msg.text,
-                "media": msg.media_hash,
+                "media": media_hash,
                 "fwd": msg.is_forwarded,
                 "meta": json.dumps(msg.meta),
             },
@@ -729,19 +774,8 @@ def process_ufdr(
         if not sha256:
             continue
         ext = Path(fe["name"]).suffix.lower()
-        mime_map = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".heic": "image/heic",
-            ".webp": "image/webp",
-            ".opus": "audio/opus",
-            ".m4a": "audio/mp4",
-            ".mp3": "audio/mpeg",
-            ".mp4": "video/mp4",
-            ".mov": "video/quicktime",
-        }
-        mime = mime_map.get(ext, "application/octet-stream")
+        classified = classify_extension(ext)
+        mime = fe.get("mime_type") or (classified[1] if classified else None) or "application/octet-stream"
         now = datetime.now(timezone.utc)
         db.execute(
             text("""
@@ -816,7 +850,7 @@ def process_ufdr(
                         vision_client.detect_batch(
                             image_paths=image_paths,
                             image_ids=image_hashes,
-                            models=["coco", "firearm", "threat"],
+                            models=["cascade"],
                         )
                     )
 
@@ -838,7 +872,9 @@ def process_ufdr(
                                     "cls_id": det["class_id"],
                                     "conf": det["confidence"],
                                     "bbox": json.dumps(det["bbox"]),
-                                    "version": "yolov8n-v1",
+                                    "version": result.get(
+                                        "pipeline_version", "weapon-cascade-v1"
+                                    ),
                                 },
                             )
                             vision_detection_count += 1

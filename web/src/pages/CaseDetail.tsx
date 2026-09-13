@@ -15,6 +15,7 @@ import {
   apiListMedia,
   apiLaunchPipeline,
   apiPipelineStatus,
+  apiPipelineQueue,
   apiListPlates,
   apiLabelPlate,
   apiListTranscriptions,
@@ -38,6 +39,7 @@ import {
   type CaseStats,
   type PlateDetection,
   type Transcription,
+  type MediaKind,
 } from '@/lib/api'
 import { useEffect, useState } from 'react'
 import {
@@ -73,6 +75,7 @@ import {
   Sword,
   Bomb,
   Flame,
+  Hammer,
   User,
   Car,
   Smartphone,
@@ -159,6 +162,7 @@ const MEDIA_CLASS_ICONS: Record<string, LucideIcon> = {
   knife: Sword,
   grenade: Bomb,
   explosive: Flame,
+  blunt_weapon: Hammer,
   person: User,
   car: Car,
   'cell phone': Smartphone,
@@ -167,6 +171,7 @@ const MEDIA_CLASS_ICONS: Record<string, LucideIcon> = {
 const MEDIA_CLASSES = [
   { class_name: 'gun', label: 'Arma de fogo' },
   { class_name: 'knife', label: 'Faca' },
+  { class_name: 'blunt_weapon', label: 'Arma contundente' },
   { class_name: 'grenade', label: 'Granada' },
   { class_name: 'explosive', label: 'Explosivo' },
   { class_name: 'person', label: 'Pessoa' },
@@ -177,6 +182,7 @@ const MEDIA_CLASSES = [
 const MEDIA_CLASS_SHORT: Record<string, string> = {
   gun: 'Arma',
   knife: 'Faca',
+  blunt_weapon: 'Contundente',
   grenade: 'Granada',
   explosive: 'Explosivo',
   person: 'Pessoa',
@@ -1048,7 +1054,18 @@ function MediaTab({ caseId }: { caseId: string }) {
   })
 
   const [pipelineNote, setPipelineNote] = useState('')
-  const [preview, setPreview] = useState<{ hash: string; mimeType: string | null } | null>(null)
+  const [preview, setPreview] = useState<{ hash: string; mimeType: string | null; kind: MediaKind } | null>(
+    null,
+  )
+  const [sampleImages, setSampleImages] = useState(20)
+  const [sampleAudios, setSampleAudios] = useState(10)
+  const [sampleVideos, setSampleVideos] = useState(5)
+
+  const { data: pipelineQueue } = useQuery({
+    queryKey: ['pipelineQueue', caseId],
+    queryFn: () => apiPipelineQueue(caseId),
+    enabled: !!caseId,
+  })
 
   const { data: pipelineJobs = [] } = useQuery({
     queryKey: ['pipelineStatus', caseId],
@@ -1071,36 +1088,47 @@ function MediaTab({ caseId }: { caseId: string }) {
     queryClient.invalidateQueries({ queryKey: ['subjects', caseId] })
     queryClient.invalidateQueries({ queryKey: ['faces', caseId] })
     queryClient.invalidateQueries({ queryKey: ['pendencias', caseId] })
+    queryClient.invalidateQueries({ queryKey: ['pipelineQueue', caseId] })
   }, [jobsBusy, pipelineJobs.length, caseId, queryClient])
 
   const pipelineMutation = useMutation({
-    mutationFn: (mode: 'sample' | 'all') => apiLaunchPipeline(caseId, { mode }),
+    mutationFn: (mode: 'sample' | 'all') =>
+      apiLaunchPipeline(caseId, {
+        mode,
+        sample_images: sampleImages,
+        sample_audios: sampleAudios,
+        sample_videos: sampleVideos,
+      }),
     onSuccess: (data) => {
       const skipped = Object.values(data.skipped ?? {})
       const warnings = data.warnings ?? []
+      const img = data.image_count ?? 0
+      const aud = data.audio_count ?? 0
+      const vid = data.video_count ?? 0
       setPipelineNote(
         [
           data.mode === 'all'
-            ? `${data.jobs_launched} job(s) · caso inteiro · ${data.image_count ?? 0} img · ${data.audio_count ?? 0} áudio`
-            : `${data.jobs_launched} job(s) · amostra · ${data.image_count ?? 0} img · ${data.audio_count ?? 0} áudio`,
+            ? `${data.jobs_launched} job(s) · caso inteiro · ${img} img · ${aud} áudio · ${vid} vídeo`
+            : `${data.jobs_launched} job(s) · lote · ${img} img · ${aud} áudio · ${vid} vídeo · restam ${data.remaining_images ?? 0} img, ${data.remaining_audios ?? 0} áudio, ${data.remaining_videos ?? 0} vídeo`,
           data.missing_files ? `${data.missing_files} sem arquivo no UFDR` : '',
           ...skipped,
-          ...warnings.filter((w) => !w.startsWith('Modo amostra')),
-          data.mode === 'sample'
-            ? 'Para processar o caso inteiro, use o botão Caso inteiro.'
-            : '',
+          ...warnings.filter((w) => !w.startsWith('Lote:')),
         ]
           .filter(Boolean)
           .join(' · '),
       )
       queryClient.invalidateQueries({ queryKey: ['media', caseId] })
       queryClient.invalidateQueries({ queryKey: ['pipelineStatus', caseId] })
+      queryClient.invalidateQueries({ queryKey: ['pipelineQueue', caseId] })
     },
     onError: (e: Error) => setPipelineNote(e.message),
   })
 
-  const displayMedia = showOnlyDetections ? mediaWithDetections : media
+  const allDisplayMedia = showOnlyDetections ? mediaWithDetections : media
+  const displayMedia = allDisplayMedia.filter((m) => m.kind !== 'other')
+  const otherMedia = allDisplayMedia.filter((m) => m.kind === 'other')
   const isLoading = showOnlyDetections ? detectionsLoading : mediaLoading
+  const [showOtherMedia, setShowOtherMedia] = useState(false)
 
   const getClassIcon = (className: string) => {
     const Icon = MEDIA_CLASS_ICONS[className] ?? Scan
@@ -1123,19 +1151,63 @@ function MediaTab({ caseId }: { caseId: string }) {
 
       <Card className="mb-4">
         <CardContent className="py-4">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
+          <div className="flex flex-wrap items-start justify-between gap-6">
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-foreground">Pipeline de detecção</p>
               <p className="mt-1 max-w-xl text-xs text-dim">
-                Amostra processa 80 imagens e 40 áudios. Caso inteiro percorre toda a mídia extraível e pode demorar.
+                Amostra pega o próximo lote em ordem cronológica (mais antigo primeiro). Um segundo
+                clique continua de onde parou. A visão usa YOLO26x, YOLO-World e Grounding DINO.
+                Vídeos entram só no ASR. O resultado é Indicator, não Fact.
               </p>
+              {pipelineQueue && (
+                <p className="mt-2 text-xs text-muted">
+                  Fila: restam {pipelineQueue.remaining_images} de {pipelineQueue.total_images}{' '}
+                  imagens · {pipelineQueue.remaining_audios} de {pipelineQueue.total_audios} áudios ·{' '}
+                  {pipelineQueue.remaining_videos} de {pipelineQueue.total_videos} vídeos
+                </p>
+              )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-end gap-3">
+              {(
+                [
+                  ['Imagens', sampleImages, setSampleImages],
+                  ['Áudios', sampleAudios, setSampleAudios],
+                  ['Vídeos', sampleVideos, setSampleVideos],
+                ] as const
+              ).map(([label, value, setter]) => (
+                <label key={label} className="flex flex-col gap-1 text-[11px] text-dim">
+                  {label}
+                  <input
+                    type="number"
+                    min={1}
+                    max={5000}
+                    value={value}
+                    onChange={(e) => setter(Math.max(1, Number(e.target.value) || 1))}
+                    style={{
+                      width: '4.5rem',
+                      height: '2.25rem',
+                      borderRadius: '0.5rem',
+                      border: '1px solid #262626',
+                      backgroundColor: '#141414',
+                      padding: '0 0.6rem',
+                      fontSize: '0.875rem',
+                      color: '#ededed',
+                    }}
+                  />
+                </label>
+              ))}
               <Button
                 size="sm"
                 variant="secondary"
                 onClick={() => pipelineMutation.mutate('sample')}
-                disabled={pipelineMutation.isPending || jobsBusy}
+                disabled={
+                  pipelineMutation.isPending ||
+                  jobsBusy ||
+                  (pipelineQueue != null &&
+                    pipelineQueue.remaining_images === 0 &&
+                    pipelineQueue.remaining_audios === 0 &&
+                    pipelineQueue.remaining_videos === 0)
+                }
               >
                 {pipelineMutation.isPending ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -1292,7 +1364,7 @@ function MediaTab({ caseId }: { caseId: string }) {
             const detectionCount =
               'detection_count' in m ? (m as { detection_count: number }).detection_count : 0
 
-            const expandable = isExpandableMedia(m.mime_type)
+            const expandable = isExpandableMedia(m.mime_type, m.kind)
             return (
               <Card key={m.hash} className="overflow-hidden hover:border-border-hover">
                 <div
@@ -1302,17 +1374,17 @@ function MediaTab({ caseId }: { caseId: string }) {
                   role={expandable ? 'button' : undefined}
                   tabIndex={expandable ? 0 : undefined}
                   onClick={() => {
-                    if (expandable) setPreview({ hash: m.hash, mimeType: m.mime_type })
+                    if (expandable) setPreview({ hash: m.hash, mimeType: m.mime_type, kind: m.kind })
                   }}
                   onKeyDown={(e) => {
                     if (!expandable) return
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      setPreview({ hash: m.hash, mimeType: m.mime_type })
+                      setPreview({ hash: m.hash, mimeType: m.mime_type, kind: m.kind })
                     }
                   }}
                 >
-                  <MediaThumbnail hash={m.hash} mimeType={m.mime_type} caseId={caseId} />
+                  <MediaThumbnail hash={m.hash} mimeType={m.mime_type} kind={m.kind} caseId={caseId} />
 
                   {detections.length > 0 && (
                     <div className="absolute right-2 top-2 flex flex-col items-end gap-1">
@@ -1320,7 +1392,7 @@ function MediaTab({ caseId }: { caseId: string }) {
                         <Badge
                           key={i}
                           variant={
-                            ['gun', 'knife', 'grenade'].includes(det.class_name)
+                            ['gun', 'knife', 'grenade', 'blunt_weapon'].includes(det.class_name)
                               ? 'danger'
                               : det.class_name === 'explosive'
                                 ? 'warning'
@@ -1357,6 +1429,46 @@ function MediaTab({ caseId }: { caseId: string }) {
         </div>
       )}
 
+      {otherMedia.length > 0 && (
+        <Card className="mt-6">
+          <CardContent className="py-4">
+            <button
+              type="button"
+              onClick={() => setShowOtherMedia((v) => !v)}
+              className="flex w-full items-center justify-between text-left"
+            >
+              <span className="text-sm font-medium text-foreground">
+                Outros arquivos ({otherMedia.length})
+              </span>
+              <span className="text-xs text-dim">
+                {showOtherMedia ? 'Ocultar' : 'Mostrar'}
+              </span>
+            </button>
+            <p className="mt-1 text-xs text-dim">
+              Arquivos cujo tipo não foi identificado — sem pré-visualização.
+            </p>
+            {showOtherMedia && (
+              <div className="mt-4 divide-y divide-border">
+                {otherMedia.map((m) => (
+                  <div
+                    key={m.hash}
+                    className="flex items-center justify-between gap-3 py-2 text-xs"
+                  >
+                    <span className="truncate text-dim" title={m.hash}>
+                      {m.hash}
+                    </span>
+                    <span className="shrink-0 text-muted">{m.mime_type ?? 'desconhecido'}</span>
+                    {m.size_bytes != null && (
+                      <span className="shrink-0 text-dim">{(m.size_bytes / 1024).toFixed(0)} KB</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {!showOnlyDetections && mediaTotal > MEDIA_PAGE_SIZE && (
         <div className="mt-6 flex items-center justify-center gap-3 pb-4">
           <Button
@@ -1387,25 +1499,32 @@ function MediaTab({ caseId }: { caseId: string }) {
         caseId={caseId}
         hash={preview?.hash ?? null}
         mimeType={preview?.mimeType}
+        kind={preview?.kind}
       />
     </>
   )
 }
 
-function MediaThumbnail({ hash, mimeType, caseId }: { hash: string; mimeType?: string | null; caseId: string }) {
+function MediaThumbnail({
+  hash,
+  mimeType,
+  kind,
+  caseId,
+}: {
+  hash: string
+  mimeType?: string | null
+  kind?: MediaKind
+  caseId: string
+}) {
   const [stage, setStage] = useState<'thumb' | 'full' | 'fail'>('thumb')
   const thumbUrl = getThumbnailUrl(hash, caseId)
   const fileUrl = getMediaUrl(hash, caseId)
-  const looksLikeImage =
-    !mimeType ||
-    mimeType.startsWith('image/') ||
-    mimeType === 'application/octet-stream'
 
   if (stage === 'fail') {
     return <Camera className="h-8 w-8 text-dim" />
   }
 
-  if (looksLikeImage) {
+  if (kind === 'image') {
     const src = stage === 'thumb' ? thumbUrl : fileUrl
     return (
       <img
@@ -1418,7 +1537,7 @@ function MediaThumbnail({ hash, mimeType, caseId }: { hash: string; mimeType?: s
     )
   }
 
-  if (mimeType?.startsWith('video/')) {
+  if (kind === 'video') {
     return (
       <video
         src={fileUrl}
@@ -1429,7 +1548,7 @@ function MediaThumbnail({ hash, mimeType, caseId }: { hash: string; mimeType?: s
     )
   }
 
-  if (mimeType?.startsWith('audio/')) {
+  if (kind === 'audio') {
     return (
       <div className="flex h-full w-full items-center justify-center">
         <audio src={fileUrl} controls className="w-full px-2" onError={() => setStage('fail')} />
@@ -1455,6 +1574,7 @@ function MediaThumbnail({ hash, mimeType, caseId }: { hash: string; mimeType?: s
       mimeType === 'application/json' ||
       mimeType === 'application/xml' ||
       mimeType === 'application/javascript' ||
+      mimeType === 'message/rfc822' ||
       mimeType.endsWith('+json') ||
       mimeType.endsWith('+xml'))
 

@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 from email.header import decode_header, make_header
 from pathlib import Path
 
+from .mime_map import EXTENSION_MAP, KIND_TAG
 from .parsers.contract import (
     ParseResult,
     ParsedEvent,
@@ -41,21 +42,15 @@ _MAX_PARSE_BYTES = 80 * 1024 * 1024
 _MAX_NESTED_ZIP = 80 * 1024 * 1024
 _MAX_HASH_BYTES = 80 * 1024 * 1024
 
+_FS_MEDIA_KINDS = {"image", "audio", "video"}
+
+# Document extensions (.txt/.xlsx/.json/...) are deliberately excluded here:
+# they get dedicated parsing in _walk_zip_handle (notes, warrant xlsx, sqlite,
+# eml) which would be short-circuited if treated as opaque media.
 _MEDIA_EXT: dict[str, tuple[str, str, str]] = {
-    ".jpg": ("image", "image/jpeg", "Image"),
-    ".jpeg": ("image", "image/jpeg", "Image"),
-    ".png": ("image", "image/png", "Image"),
-    ".heic": ("image", "image/heic", "Image"),
-    ".webp": ("image", "image/webp", "Image"),
-    ".gif": ("image", "image/gif", "Image"),
-    ".opus": ("audio", "audio/opus", "Audio"),
-    ".m4a": ("audio", "audio/mp4", "Audio"),
-    ".mp3": ("audio", "audio/mpeg", "Audio"),
-    ".aac": ("audio", "audio/aac", "Audio"),
-    ".wav": ("audio", "audio/wav", "Audio"),
-    ".mp4": ("video", "video/mp4", "Video"),
-    ".mov": ("video", "video/quicktime", "Video"),
-    ".m4v": ("video", "video/mp4", "Video"),
+    ext: (kind, mime, KIND_TAG[kind])
+    for ext, (kind, mime) in EXTENSION_MAP.items()
+    if kind in _FS_MEDIA_KINDS
 }
 
 
@@ -130,7 +125,7 @@ def inventory_fs_media(
                 stats["media_hashed"] += 1
             else:
                 stats["media_unhashed_large"] += 1
-            _kind, _mime, tag = _MEDIA_EXT[ext]
+            kind, mime, tag = _MEDIA_EXT[ext]
             extra.append(
                 {
                     "file_id": f"fs:{name}",
@@ -141,6 +136,8 @@ def inventory_fs_media(
                     "md5": None,
                     "local_path": name,
                     "tag": tag,
+                    "kind": kind,
+                    "mime_type": mime,
                     "timestamps": {},
                 }
             )

@@ -1,6 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
-import { getMediaUrl } from '@/lib/api'
+import { getMediaUrl, type MediaKind } from '@/lib/api'
 
 interface MediaLightboxProps {
   open: boolean
@@ -8,6 +8,7 @@ interface MediaLightboxProps {
   caseId: string
   hash: string | null
   mimeType?: string | null
+  kind?: MediaKind
 }
 
 export function MediaLightbox({
@@ -16,9 +17,10 @@ export function MediaLightbox({
   caseId,
   hash,
   mimeType,
+  kind,
 }: MediaLightboxProps) {
   const src = hash ? getMediaUrl(hash, caseId) : ''
-  const isVideo = mimeType?.startsWith('video/') ?? false
+  const isVideo = kind ? kind === 'video' : (mimeType?.startsWith('video/') ?? false)
 
   return (
     <DialogPrimitive.Root
@@ -67,11 +69,8 @@ export function MediaLightbox({
   )
 }
 
-export function isExpandableMedia(mimeType?: string | null): boolean {
-  if (!mimeType) return true
-  return (
-    mimeType.startsWith('image/') ||
-    mimeType.startsWith('video/') ||
-    mimeType === 'application/octet-stream'
-  )
+export function isExpandableMedia(mimeType?: string | null, kind?: MediaKind): boolean {
+  if (kind) return kind === 'image' || kind === 'video'
+  if (!mimeType) return false
+  return mimeType.startsWith('image/') || mimeType.startsWith('video/')
 }

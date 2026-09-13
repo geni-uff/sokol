@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from .db import get_session_factory
+from .media import classify_mime
 
 router = APIRouter(prefix="/vision", tags=["vision"])
 
@@ -35,6 +36,7 @@ class DetectionStats(BaseModel):
 class MediaWithDetections(BaseModel):
     hash: str
     mime_type: Optional[str]
+    kind: str
     size_bytes: Optional[int]
     detections: list[DetectionItem]
     max_confidence: float
@@ -197,6 +199,7 @@ def media_with_detections(
                 MediaWithDetections(
                     hash=media_hash,
                     mime_type=media_row[1],
+                    kind=classify_mime(media_row[1]),
                     size_bytes=media_row[2],
                     detections=detections,
                     max_confidence=round(media_row[4], 4) if media_row[4] else 0,

@@ -385,9 +385,12 @@ export async function apiExecutePlaybook(playbookId: string, caseId: string) {
 }
 
 // ── Media ─────────────────────────────────────────────────────────────────
+export type MediaKind = 'image' | 'audio' | 'video' | 'document' | 'other'
+
 interface MediaItem {
   hash: string
   mime_type: string | null
+  kind: MediaKind
   size_bytes: number | null
   thumbnail_available: boolean
   usage_count: number
@@ -587,7 +590,12 @@ export interface PipelineJob {
 
 export async function apiLaunchPipeline(
   caseId: string,
-  opts?: { mode?: 'sample' | 'all'; sample_images?: number; sample_audios?: number },
+  opts?: {
+    mode?: 'sample' | 'all'
+    sample_images?: number
+    sample_audios?: number
+    sample_videos?: number
+  },
 ): Promise<{
   jobs_launched: number
   job_ids: Record<string, string>
@@ -596,17 +604,39 @@ export async function apiLaunchPipeline(
   mode?: string
   image_count?: number
   audio_count?: number
+  video_count?: number
   missing_files?: number
+  remaining_images?: number
+  remaining_audios?: number
+  remaining_videos?: number
 }> {
   const params = new URLSearchParams()
   params.set('mode', opts?.mode ?? 'sample')
   if (opts?.sample_images) params.set('sample_images', String(opts.sample_images))
   if (opts?.sample_audios) params.set('sample_audios', String(opts.sample_audios))
+  if (opts?.sample_videos) params.set('sample_videos', String(opts.sample_videos))
   const res = await fetch(`${API_BASE}/detect/pipeline/${caseId}?${params}`, {
     method: 'POST',
     headers: authHeaders(),
   })
   if (!res.ok) await throwApiError(res, 'Falha ao iniciar pipeline')
+  return res.json()
+}
+
+export interface PipelineQueue {
+  remaining_images: number
+  remaining_audios: number
+  remaining_videos: number
+  total_images: number
+  total_audios: number
+  total_videos: number
+}
+
+export async function apiPipelineQueue(caseId: string): Promise<PipelineQueue | null> {
+  const res = await fetch(`${API_BASE}/detect/pipeline/${caseId}/queue`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) return null
   return res.json()
 }
 
@@ -755,9 +785,63 @@ export interface GeoEvent {
   meta: Record<string, unknown> | null
 }
 
-export async function apiGeoEvents(caseId: string): Promise<GeoEvent[]> {
-  const res = await fetch(`${API_BASE}/events/geo?case_id=${caseId}`, { headers: authHeaders() })
+export interface GeoEventFilters {
+  app?: string
+  startDate?: string
+  endDate?: string
+  weekday?: number
+  startHour?: number
+  endHour?: number
+  gridLat?: number
+  gridLon?: number
+}
+
+export async function apiGeoEvents(caseId: string, filters?: GeoEventFilters): Promise<GeoEvent[]> {
+  const params = new URLSearchParams({ case_id: caseId })
+  if (filters?.app) params.set('app', filters.app)
+  if (filters?.startDate) params.set('start_date', filters.startDate)
+  if (filters?.endDate) params.set('end_date', filters.endDate)
+  if (filters?.weekday !== undefined) params.set('weekday', String(filters.weekday))
+  if (filters?.startHour !== undefined) params.set('start_hour', String(filters.startHour))
+  if (filters?.endHour !== undefined) params.set('end_hour', String(filters.endHour))
+  if (filters?.gridLat !== undefined) params.set('grid_lat', String(filters.gridLat))
+  if (filters?.gridLon !== undefined) params.set('grid_lon', String(filters.gridLon))
+  const res = await fetch(`${API_BASE}/events/geo?${params}`, { headers: authHeaders() })
   if (!res.ok) return []
+  return res.json()
+}
+
+// ── Location Patterns (recurrence) ───────────────────────────────────
+export interface LocationPattern {
+  grid_lat: number
+  grid_lon: number
+  weekday: number
+  weekday_label: string
+  start_hour: number
+  end_hour: number
+  occurrences: number
+  distinct_weeks: number
+  sample_address: string | null
+  event_ids: string[]
+}
+
+export interface LocationPatternsResponse {
+  case_id: string
+  timezone: string
+  patterns: LocationPattern[]
+}
+
+export async function apiLocationPatterns(
+  caseId: string,
+  opts?: { minWeeks?: number; minOccurrences?: number },
+): Promise<LocationPatternsResponse> {
+  const params = new URLSearchParams({ case_id: caseId })
+  if (opts?.minWeeks) params.set('min_weeks', String(opts.minWeeks))
+  if (opts?.minOccurrences) params.set('min_occurrences', String(opts.minOccurrences))
+  const res = await fetch(`${API_BASE}/analytics/${caseId}/location-patterns?${params}`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) return { case_id: caseId, timezone: 'America/Sao_Paulo', patterns: [] }
   return res.json()
 }
 
@@ -931,6 +1015,7 @@ export interface MessageItem {
   text: string | null
   media_hash: string | null
   is_forwarded: boolean | null
+  mime_type?: string | null
 }
 
 export interface MessagesResponse {
