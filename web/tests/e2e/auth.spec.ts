@@ -7,21 +7,21 @@ test.describe('Authentication', () => {
 
   test('should show login form', async ({ page }) => {
     await expect(page.getByText('SOKOL')).toBeVisible()
-    await expect(page.getByLabel(/email|username/i)).toBeVisible()
-    await expect(page.getByLabel(/password/i)).toBeVisible()
+    await expect(page.getByLabel(/email|username|usuário|usuario/i)).toBeVisible()
+    await expect(page.getByLabel(/password|senha/i)).toBeVisible()
   })
 
   test('should reject invalid credentials', async ({ page }) => {
-    await page.getByLabel(/email|username/i).fill('invalid@test.com')
-    await page.getByLabel(/password/i).fill('wrongpass')
+    await page.getByLabel(/email|username|usuário|usuario/i).fill('invalid@test.com')
+    await page.getByLabel(/password|senha/i).fill('wrongpass')
     await page.getByRole('button', { name: /login|entrar/i }).click()
 
     await expect(page.getByText(/invalid|error|incorrect|credencial|senha/i)).toBeVisible()
   })
 
   test('should login with valid credentials', async ({ page }) => {
-    await page.getByLabel(/email|username/i).fill('admin')
-    await page.getByLabel(/password/i).fill('admin123')
+    await page.getByLabel(/email|username|usuário|usuario/i).fill('admin')
+    await page.getByLabel(/password|senha/i).fill('admin123')
     await page.getByRole('button', { name: /login|entrar/i }).click()
 
     await expect(page).toHaveURL(/\/cases/)
@@ -29,8 +29,8 @@ test.describe('Authentication', () => {
   })
 
   test('should persist session token', async ({ page }) => {
-    await page.getByLabel(/email|username/i).fill('admin')
-    await page.getByLabel(/password/i).fill('admin123')
+    await page.getByLabel(/email|username|usuário|usuario/i).fill('admin')
+    await page.getByLabel(/password|senha/i).fill('admin123')
     await page.getByRole('button', { name: /login|entrar/i }).click()
     await page.waitForURL(/\/cases/)
 

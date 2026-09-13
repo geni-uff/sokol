@@ -3,8 +3,8 @@ import { test, expect } from '@playwright/test'
 test.describe('Cases Management', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/login')
-    await page.getByLabel(/email|username/i).fill('admin')
-    await page.getByLabel(/password/i).fill('admin123')
+    await page.getByLabel(/email|username|usuário|usuario/i).fill('admin')
+    await page.getByLabel(/password|senha/i).fill('admin123')
     await page.getByRole('button', { name: /login|entrar/i }).click()
     await page.waitForURL(/\/cases/)
   })
