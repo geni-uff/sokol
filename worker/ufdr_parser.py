@@ -617,6 +617,43 @@ def process_ufdr(
                 evt.ref_id = uuid4()  # placeholder — set to actual msg_id below
                 msg_idx += 1
 
+    # Phase 4.6: Populate media table from artifacts with SHA-256.
+    # Must run before message insertion: messages.media_hash is a FK into
+    # media.hash, and resolve_message_media_hash() can now resolve real
+    # attachment hashes (not just None) — inserting messages first would
+    # violate that FK as soon as an attachment resolves to a hash whose
+    # media row doesn't exist yet.
+    emit("insert_media", 0.746, "Populating media table...")
+    media_count = 0
+    for fe in file_entries:
+        sha256 = fe.get("sha256")
+        if not sha256:
+            continue
+        ext = Path(fe["name"]).suffix.lower()
+        classified = classify_extension(ext)
+        mime = fe.get("mime_type") or (classified[1] if classified else None) or "application/octet-stream"
+        now = datetime.now(timezone.utc)
+        db.execute(
+            text("""
+                INSERT INTO media (hash, mime_type, size_bytes, storage_ref, created_at)
+                VALUES (:hash, :mime, :size, :ref, :now)
+                ON CONFLICT (hash) DO NOTHING
+            """),
+            {
+                "hash": sha256,
+                "mime": mime,
+                "size": fe["size"],
+                "ref": json.dumps(
+                    {"file_id": fe["file_id"], "local_path": fe.get("local_path")}
+                ),
+                "now": now,
+            },
+        )
+        media_count += 1
+
+    db.commit()
+    emit("insert_media", 0.749, f"Populated {media_count} media entries")
+
     # Phase 5: Insert messages
     emit(
         "insert_messages", 0.75, f"Inserting {len(parsed_result.messages)} messages..."
@@ -765,38 +802,6 @@ def process_ufdr(
         0.845,
         f"Agenda: {agenda['persons_created']} pessoas, {agenda['links_created']} contact_of",
     )
-
-    # Phase 5.6: Populate media table from artifacts with SHA-256
-    emit("insert_media", 0.85, "Populating media table...")
-    media_count = 0
-    for fe in file_entries:
-        sha256 = fe.get("sha256")
-        if not sha256:
-            continue
-        ext = Path(fe["name"]).suffix.lower()
-        classified = classify_extension(ext)
-        mime = fe.get("mime_type") or (classified[1] if classified else None) or "application/octet-stream"
-        now = datetime.now(timezone.utc)
-        db.execute(
-            text("""
-                INSERT INTO media (hash, mime_type, size_bytes, storage_ref, created_at)
-                VALUES (:hash, :mime, :size, :ref, :now)
-                ON CONFLICT (hash) DO NOTHING
-            """),
-            {
-                "hash": sha256,
-                "mime": mime,
-                "size": fe["size"],
-                "ref": json.dumps(
-                    {"file_id": fe["file_id"], "local_path": fe.get("local_path")}
-                ),
-                "now": now,
-            },
-        )
-        media_count += 1
-
-    db.commit()
-    emit("insert_media", 0.87, f"Populated {media_count} media entries")
 
     # Phase 5.7: Vision detection on images
     vision_detection_count = 0
