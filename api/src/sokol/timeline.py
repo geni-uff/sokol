@@ -72,6 +72,8 @@ def get_timeline(
     app: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    dow: int | None = Query(None, ge=0, le=6, description="Day of week (0=Sun) in case timezone"),
+    hour: int | None = Query(None, ge=0, le=23, description="Hour of day in case timezone"),
     user: CurrentUser = Depends(get_current_user),
 ):
     """Get timeline events for a case."""
@@ -94,6 +96,15 @@ def get_timeline(
         if end_date:
             conditions.append("e.ts <= :end_date")
             bind["end_date"] = end_date
+        if dow is not None or hour is not None:
+            tz = _case_timezone(db, case_id)
+            bind["tz"] = tz
+            if dow is not None:
+                conditions.append("EXTRACT(DOW FROM e.ts AT TIME ZONE :tz)::int = :dow")
+                bind["dow"] = dow
+            if hour is not None:
+                conditions.append("EXTRACT(HOUR FROM e.ts AT TIME ZONE :tz)::int = :hour")
+                bind["hour"] = hour
 
         where = " AND ".join(conditions)
 

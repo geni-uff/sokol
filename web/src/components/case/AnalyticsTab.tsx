@@ -8,6 +8,7 @@ import {
   apiAnalyzeAnomalies,
   apiListAnomalies,
   apiDismissAnomaly,
+  apiTimeline,
   type LocationCell,
 } from '@/lib/api'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -55,9 +56,17 @@ function heatColor(value: number, max: number): string {
 
 function ActivityGrid({ caseId }: { caseId: string }) {
   const [kind, setKind] = useState('')
+  const [selected, setSelected] = useState<{ dow: number; hour: number } | null>(null)
   const { data, isLoading } = useQuery({
     queryKey: ['activity-heatmap', caseId, kind],
     queryFn: () => apiActivityHeatmap(caseId, kind || undefined),
+  })
+
+  const { data: cellEvents, isLoading: cellLoading } = useQuery({
+    queryKey: ['activity-heatmap-cell', caseId, kind, selected?.dow, selected?.hour],
+    queryFn: () =>
+      apiTimeline(caseId, 50, 0, kind || undefined, undefined, undefined, undefined, selected!.dow, selected!.hour),
+    enabled: !!selected,
   })
 
   const cells = data?.cells ?? []
@@ -78,7 +87,14 @@ function ActivityGrid({ caseId }: { caseId: string }) {
               {data?.total_events?.toLocaleString() ?? 0} eventos · fuso {data?.timezone || '—'}
             </p>
           </div>
-          <select value={kind} onChange={(e) => setKind(e.target.value)} style={SELECT_STYLE}>
+          <select
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value)
+              setSelected(null)
+            }}
+            style={SELECT_STYLE}
+          >
             <option value="">Todos os tipos</option>
             <option value="message">Mensagens</option>
             <option value="call">Chamadas</option>
@@ -107,14 +123,21 @@ function ActivityGrid({ caseId }: { caseId: string }) {
                   <div className="pr-1 text-right text-[10px] leading-[16px] text-dim">{DOW_LABELS[dow]}</div>
                   {Array.from({ length: 24 }, (_, h) => {
                     const v = matrix.get(`${dow}:${h}`) ?? 0
+                    const isSelected = selected?.dow === dow && selected?.hour === h
                     return (
                       <div
                         key={h}
-                        title={`${DOW_LABELS[dow]} ${h}h — ${v} evento(s)`}
+                        title={`${DOW_LABELS[dow]} ${h}h — ${v} evento(s)${v > 0 ? ' · clique para filtrar' : ''}`}
+                        onClick={() => {
+                          if (v === 0) return
+                          setSelected((prev) => (prev?.dow === dow && prev?.hour === h ? null : { dow, hour: h }))
+                        }}
                         style={{
                           height: '16px',
                           borderRadius: '3px',
                           backgroundColor: heatColor(v, max),
+                          cursor: v > 0 ? 'pointer' : 'default',
+                          boxShadow: isSelected ? '0 0 0 2px #ededed' : 'none',
                         }}
                       />
                     )
@@ -122,6 +145,63 @@ function ActivityGrid({ caseId }: { caseId: string }) {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {selected && (
+          <div className="mt-4 border-t border-border pt-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h4 className="text-xs font-medium text-foreground">
+                Eventos em {DOW_LABELS[selected.dow]} às {selected.hour}h
+                {cellEvents ? ` (${cellEvents.total.toLocaleString()})` : ''}
+              </h4>
+              <button
+                onClick={() => setSelected(null)}
+                className="flex items-center gap-1 text-[11px] text-dim hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+                Limpar
+              </button>
+            </div>
+
+            {cellLoading ? (
+              <div className="flex justify-center py-6">
+                <Loader2 className="h-4 w-4 animate-spin text-muted" />
+              </div>
+            ) : !cellEvents || cellEvents.events.length === 0 ? (
+              <p className="py-4 text-center text-xs text-dim">Nenhum evento nesta célula.</p>
+            ) : (
+              <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                {cellEvents.events.map((ev) => (
+                  <div key={ev.id} className="rounded-lg border border-border px-3 py-2">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-[11px] text-muted">
+                        {ev.ts ? new Date(ev.ts).toLocaleString('pt-BR') : '?'}
+                      </span>
+                      <Badge className="text-[10px]">{ev.kind}</Badge>
+                      {ev.app && (
+                        <Badge variant="accent" className="text-[10px]">
+                          {ev.app}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="break-words text-xs text-foreground">{ev.summary}</p>
+                    {ev.actor && ev.counterpart && (
+                      <p className="mt-1 break-words text-[11px] text-dim">
+                        <span className="font-medium text-muted">{ev.actor}</span>
+                        {' → '}
+                        <span className="font-medium text-muted">{ev.counterpart}</span>
+                      </p>
+                    )}
+                  </div>
+                ))}
+                {cellEvents.total > cellEvents.events.length && (
+                  <p className="pt-1 text-center text-[11px] text-dim">
+                    Mostrando {cellEvents.events.length} de {cellEvents.total.toLocaleString()}.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
       </CardContent>

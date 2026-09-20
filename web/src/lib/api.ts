@@ -170,12 +170,16 @@ export async function apiTimeline(
   app?: string,
   startDate?: string,
   endDate?: string,
+  dow?: number,
+  hour?: number,
 ): Promise<TimelineResponse> {
   const params = new URLSearchParams({ case_id: caseId, limit: String(limit), offset: String(offset) })
   if (kind) params.set('kind', kind)
   if (app) params.set('app', app)
   if (startDate) params.set('start_date', startDate)
   if (endDate) params.set('end_date', endDate)
+  if (dow !== undefined) params.set('dow', String(dow))
+  if (hour !== undefined) params.set('hour', String(hour))
   const res = await fetch(`${API_BASE}/events/timeline?${params}`, { headers: authHeaders() })
   if (!res.ok) return { events: [], total: 0, case_id: caseId }
   return res.json()

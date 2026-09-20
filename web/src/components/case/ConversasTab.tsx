@@ -272,14 +272,65 @@ function MessageView({
   )
 }
 
+function AppTabs({
+  chats,
+  active,
+  onChange,
+}: {
+  chats: ChatSummary[]
+  active: string
+  onChange: (app: string) => void
+}) {
+  const counts = new Map<string, number>()
+  for (const c of chats) {
+    const app = c.app || '(sem app)'
+    counts.set(app, (counts.get(app) ?? 0) + 1)
+  }
+  const apps = Array.from(counts.keys()).sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0))
+
+  const pill = (value: string, label: string, count: number) => (
+    <button
+      key={value}
+      onClick={() => onChange(value)}
+      style={{
+        height: '2rem',
+        borderRadius: '9999px',
+        padding: '0 0.875rem',
+        fontSize: '0.75rem',
+        fontWeight: 500,
+        border: '1px solid',
+        borderColor: active === value ? '#ededed' : '#262626',
+        backgroundColor: active === value ? '#ededed' : 'transparent',
+        color: active === value ? '#0a0a0a' : '#a3a3a3',
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label} <span style={{ opacity: 0.7 }}>({count})</span>
+    </button>
+  )
+
+  return (
+    <div className="mb-3 flex flex-wrap gap-2">
+      {pill('', 'Todos', chats.length)}
+      {apps.map((app) => pill(app, app, counts.get(app) ?? 0))}
+    </div>
+  )
+}
+
 export function ConversasTab({ caseId }: { caseId: string }) {
   const [selectedChat, setSelectedChat] = useState<ChatSummary | null>(null)
+  const [appFilter, setAppFilter] = useState('')
 
   const { data: chats = [], isLoading } = useQuery({
     queryKey: ['chats', caseId],
     queryFn: () => apiListChats(caseId),
     enabled: !!caseId,
   })
+
+  const filteredByApp = appFilter
+    ? chats.filter((c) => (c.app || '(sem app)') === appFilter)
+    : chats
 
   return (
     <>
@@ -304,7 +355,10 @@ export function ConversasTab({ caseId }: { caseId: string }) {
           description="As mensagens aparecem após a ingestão de UFDRs com apps de comunicação."
         />
       ) : (
-        <ChatList chats={chats} onSelect={setSelectedChat} />
+        <>
+          <AppTabs chats={chats} active={appFilter} onChange={setAppFilter} />
+          <ChatList chats={filteredByApp} onSelect={setSelectedChat} />
+        </>
       )}
     </>
   )
