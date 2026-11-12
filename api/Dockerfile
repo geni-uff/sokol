@@ -24,7 +24,7 @@ RUN uv venv api/.venv && uv pip install --python api/.venv \
     "uvicorn[standard]>=0.34" \
     "httpx>=0.28" \
     "argon2-cffi>=23.1" \
-    "sqlalchemy>=2.0" \
+    "sqlalchemy>=2.0,<2.1" \
     "psycopg2-binary>=2.9" \
     "alembic>=1.13" \
     "redis>=5.0" \

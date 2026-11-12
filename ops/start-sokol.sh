@@ -41,6 +41,9 @@ echo "A subir os containers. A primeira vez pode demorar varios minutos."
   docker compose --env-file ../.env up --build -d
 )
 
+WEB_PORT="$(grep -E '^SOKOL_WEB_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '\r')"
+WEB_PORT="${WEB_PORT:-3000}"
+
 echo "A esperar http://localhost:8000/health ..."
 ok=0
 for _ in $(seq 1 60); do
@@ -59,11 +62,11 @@ echo "A aplicar migracoes..."
 docker exec sokol-api alembic upgrade head
 
 echo
-echo "SOKOL no ar: http://localhost:3000"
+echo "SOKOL no ar: http://localhost:${WEB_PORT}"
 echo "Login de desenvolvimento: admin / admin123"
 echo "No Windows, abra esse endereco no navegador do Windows."
 echo
 
 if command -v xdg-open >/dev/null 2>&1; then
-  xdg-open http://localhost:3000 >/dev/null 2>&1 || true
+  xdg-open http://localhost:${WEB_PORT} >/dev/null 2>&1 || true
 fi

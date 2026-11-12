@@ -1,6 +1,7 @@
 """Alembic environment configuration for SOKOL."""
 
 import os
+import re
 from logging.config import fileConfig
 
 from alembic import context
@@ -14,6 +15,8 @@ if config.config_file_name is not None:
 # Override sqlalchemy.url from environment if available
 database_url = os.getenv("DATABASE_URL")
 if database_url:
+    # Driver explícito: SQLAlchemy 2.1 usa psycopg v3 por padrão; a imagem só tem psycopg2.
+    database_url = re.sub(r"^postgres(?:ql)?(?:\+psycopg)?://", "postgresql+psycopg2://", database_url)
     config.set_main_option("sqlalchemy.url", database_url)
 
 # Import models for autogenerate support

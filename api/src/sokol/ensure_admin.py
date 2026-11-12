@@ -5,6 +5,7 @@ Author: Matheus C. Pestana
 from __future__ import annotations
 
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -25,7 +26,8 @@ def main() -> int:
         "yes",
     )
 
-    engine = create_engine(url)
+    # Driver explícito: SQLAlchemy 2.1 usa psycopg v3 por padrão (ver db.py).
+    engine = create_engine(re.sub(r"^postgres(?:ql)?(?:\+psycopg)?://", "postgresql+psycopg2://", url))
     ph = PasswordHasher()
     now = datetime.now(timezone.utc)
 
